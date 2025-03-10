@@ -43,6 +43,10 @@ install.packages(c("shiny", "plotly", "leaflet", "sf", "httr", "jsonlite", "logg
 
 3. Acesse a aplicação no seu navegador em `http://127.0.0.1:3838`.
 
+4. Veja a demonstração da aplicação:
+
+   ![Demonstração da Aplicação](SAT_INPE_APP-Demo.gif)
+
 ## Estrutura do Projeto
 
 ```

@@ -1,0 +1,12 @@
+version: '3.8'
+
+services:
+  shiny-app:
+    build: 
+      context: .
+      dockerfile: .devcontainer/Dockerfile
+    ports:
+      - "3838:3838"
+    volumes:
+      - .:/workspace
+    command: R -e "shiny::runApp('/workspace/app', host = '0.0.0.0', port = 3838)" 

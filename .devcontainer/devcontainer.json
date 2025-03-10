@@ -1,0 +1,19 @@
+{
+  "name": "INPE Satellite App Dev",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  "forwardPorts": [3838],
+  "settings": {
+    "terminal.integrated.shell.linux": "/bin/bash"
+  },
+  "extensions": [
+    "reditorsupport.r",
+    "REditorSupport.r-lsp"
+  ],
+  "mounts": [
+    "source=${localWorkspaceFolder},target=/workspace,type=bind"
+  ],
+  "workspaceFolder": "/workspace",
+  "remoteUser": "rstudio"
+} 

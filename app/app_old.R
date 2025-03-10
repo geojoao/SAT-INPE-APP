@@ -548,8 +548,9 @@ server <- function(input, output, session) {
                 rast_final,
                 layerId = layer_name,
                 group = layer_name,
-                opacity = 1,#0.9,
-                options = list(pane = "overlayPane")
+                opacity = 1,
+                project = TRUE,
+                method = "bilinear"
               ) %>%
               showGroup(layer_name)
           }

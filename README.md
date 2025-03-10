@@ -41,7 +41,7 @@ install.packages(c("shiny", "plotly", "leaflet", "sf", "httr", "jsonlite", "logg
    runApp("app/app.R")
    ```
 
-3. Acesse a aplicação no seu navegador em `http://127.0.0.1:3838`.
+3. Acesse a aplicação no seu navegador em localhost.
 
 4. Veja a demonstração da aplicação:
 

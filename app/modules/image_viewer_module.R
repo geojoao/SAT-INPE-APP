@@ -1,5 +1,13 @@
+# Initialize STAC client and get collections
+stac_obj <- stac("https://data.inpe.br/bdc/stac/v1/")
+collections <- stac_obj %>%
+  collections() %>%
+  get_request()
+
+available_collections <- sapply(collections$collections, function(x) x$id)
+
 # Image Viewer Module UI
-imageViewerUI <- function(id, available_collections) {
+imageViewerUI <- function(id) {
   ns <- NS(id)
   
   div(
@@ -25,15 +33,27 @@ imageViewerUI <- function(id, available_collections) {
 }
 
 # Image Viewer Module Server
-imageViewerServer <- function(id, stac_obj, mapBounds, map) {
+imageViewerServer <- function(id, leaflet_map) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
-    
+
+    mainInput <- leaflet_map$mapInput 
+    overlayGroups <- leaflet_map$overlayGroups 
+    baseGroups <- leaflet_map$baseGroups 
+    map <- leaflet_map$proxy
+
     rv <- reactiveValues(
       availableAssets = NULL,
-      overlayGroups = character(0)
+      baseGroups = baseGroups,
+      overlayGroups = overlayGroups,
+      mapBounds = NULL,
     )
     
+    # Store map bounds when they change
+    observeEvent(mainInput$map_bounds, {
+      rv$mapBounds <- mainInput$map_bounds
+    })
+
     # Dynamic band selector based on selected collection
     output$bandSelectorStac <- renderUI({
       req(input$collection)
@@ -88,15 +108,15 @@ imageViewerServer <- function(id, stac_obj, mapBounds, map) {
     
     # Search assets when button is clicked
     observeEvent(input$searchAssets, {
-      req(input$collection, input$dateRangeStac, mapBounds())
+      req(input$collection, input$dateRangeStac, rv$mapBounds)
       log_info("Searching for assets")
       
       tryCatch({
         bbox <- as.numeric(c(
-          mapBounds()$west,
-          mapBounds()$south,
-          mapBounds()$east,
-          mapBounds()$north
+          rv$mapBounds$west,
+          rv$mapBounds$south,
+          rv$mapBounds$east,
+          rv$mapBounds$north
         ))
         
         datetime <- paste0(
@@ -154,6 +174,20 @@ imageViewerServer <- function(id, stac_obj, mapBounds, map) {
       } else {
         req(input$redBand, input$greenBand, input$blueBand)
       }
+
+      # Validate area of map bounds before processing the asset
+      req(rv$mapBounds)
+      bounds <- rv$mapBounds
+      width <- abs(bounds$east - bounds$west)
+      height <- abs(bounds$north - bounds$south)
+      area <- width * height
+      max_area_threshold <- 1  # Define max allowable area in square degrees
+      
+      if(area > max_area_threshold) {
+        showNotification("Selected area is too large. Please zoom in before loading the asset.", type = "error")
+        return()
+      }
+      
       log_info("Loading asset to map")
       
       selected_feature <- Filter(
@@ -162,14 +196,14 @@ imageViewerServer <- function(id, stac_obj, mapBounds, map) {
       )[[1]]
       
       if (!is.null(selected_feature)) {
-        processAndLoadAsset(input, selected_feature, mapBounds(), rv, map)
+        processAndLoadAsset(input, selected_feature, rv, map)
       }
     })
   })
 }
 
 # Helper Functions
-processAndLoadAsset <- function(input, selected_feature, mapBounds, rv, map) {
+processAndLoadAsset <- function(input, selected_feature, rv, map) {
   tryCatch({
     log_info("Processing selected asset")
     
@@ -187,10 +221,10 @@ processAndLoadAsset <- function(input, selected_feature, mapBounds, rv, map) {
     
     # Create extent
     map_extent <- terra::ext(
-      mapBounds$west,
-      mapBounds$east,
-      mapBounds$south,
-      mapBounds$north
+      rv$mapBounds$west,
+      rv$mapBounds$east,
+      rv$mapBounds$south,
+      rv$mapBounds$north
     )
     map_bbox <- terra::vect(map_extent, crs="EPSG:4326")
     
@@ -216,25 +250,23 @@ processAndLoadAsset <- function(input, selected_feature, mapBounds, rv, map) {
 }
 
 loadSingleBands <- function(input, asset_urls, asset_date, map_bbox, rv, map) {
-  new_layers <- paste(input$collection, names(asset_urls), asset_date, sep = "_")
-  rv$overlayGroups <- unique(c(rv$overlayGroups, new_layers))
-  
-  map %>%
-    clearGroup(new_layers) %>%
-    addLayersControl(
-      baseGroups = c("OpenStreetMap", "Satellite"),
-      overlayGroups = rv$overlayGroups,
-      options = layersControlOptions(collapsed = FALSE),
-      position = "topright"
-    )
+  #new_layers <- paste(input$collection, names(asset_urls), asset_date, sep = "_")
   
   for (band_name in names(asset_urls)) {
     url <- paste0("/vsicurl/", asset_urls[[band_name]])
     rast <- processRaster(url, map_bbox)
     
     layer_name <- paste(input$collection, band_name, asset_date, sep = "_")
-    
+    rv$baseGroups <- unique(c(rv$baseGroups, layer_name))
+
     map %>%
+      clearGroup(layer_name) %>%
+      addLayersControl(
+        baseGroups = rv$baseGroups,
+        overlayGroups = rv$overlayGroups,
+        options = layersControlOptions(collapsed = FALSE),
+        position = "topright"
+      ) %>%
       addRasterImage(
         rast,
         layerId = layer_name,
@@ -249,22 +281,44 @@ loadSingleBands <- function(input, asset_urls, asset_date, map_bbox, rv, map) {
 
 loadRGBComposite <- function(input, asset_urls, asset_date, map_bbox, rv, map) {
   rgb_layer_name <- paste(input$collection, "RGB", asset_date, sep = "_")
-  rv$overlayGroups <- unique(c(rv$overlayGroups, rgb_layer_name))
+  rv$baseGroups <- unique(c(rv$baseGroups, rgb_layer_name))
   
   map %>%
     clearGroup(rgb_layer_name) %>%
     addLayersControl(
-      baseGroups = c("OpenStreetMap", "Satellite"),
+      baseGroups = rv$baseGroups,
       overlayGroups = rv$overlayGroups,
       options = layersControlOptions(collapsed = FALSE),
       position = "topright"
     )
   
-  rgb_rasts <- lapply(asset_urls, function(url) {
-    processRaster(paste0("/vsicurl/", url), map_bbox)
-  })
+  rgb_rasts <- list()
+  for (i in 1:3) {
+    url <- asset_urls[i]
+    if (!grepl("^/vsi", url)) {
+      url <- paste0("/vsicurl/", url)
+    }
+    
+    rast <- terra::rast(url)
+    
+    if (!is.na(terra::crs(rast)) && terra::crs(rast) != "EPSG:4326") {
+      map_bbox_transformed <- terra::project(map_bbox, terra::crs(rast))
+      rast_cropped <- terra::crop(rast, map_bbox_transformed)
+      rgb_rasts[[i]] <- terra::project(rast_cropped, "EPSG:4326")
+    } else {
+      rgb_rasts[[i]] <- terra::crop(rast, map_bbox)
+    }
+  }
   
-  rgb_raster <- brick(stack(rgb_rasts))
+  # Get values for each band
+  r <- rgb_rasts[[1]]
+  g <- rgb_rasts[[2]]
+  b <- rgb_rasts[[3]]
+
+  # Stack RGB bands into a single raster
+  rgb_raster <- c(r, g, b)
+
+  rgb_raster <- brick(rgb_raster) # Convert to RasterBrick for leaflet compatibility
   
   map %>%
     addRasterRGB(
@@ -289,4 +343,4 @@ processRaster <- function(url, map_bbox) {
   } else {
     return(terra::crop(rast, map_bbox))
   }
-} 
+}

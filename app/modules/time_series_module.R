@@ -1,34 +1,267 @@
+library(geojsonsf)
+library(jsonlite)
+
+# Initialize the WTSS client
+wtss_inpe <- "https://data.inpe.br/bdc/wtss/v4/"
+client <- WTSSClient$new(base_url = wtss_inpe)
+
+# Get available collections for the dropdown
+capabilities <- client$get_capabilities()
+available_products <- sapply(capabilities$available_collections, function(x) x$name)
+
+createSummaryPlot <- function(data, band_name) {
+  log_info(sprintf("Creating summary plot for band: %s", band_name))
+  log_info(sprintf("Data columns: %s", paste(names(data), collapse=", ")))
+  
+  # Define column names
+  mean_col <- paste0(band_name, "_mean")
+  min_col <- paste0(band_name, "_min")
+  max_col <- paste0(band_name, "_max")
+  
+  log_info(sprintf("Looking for columns: %s, %s, %s", mean_col, min_col, max_col))
+  
+  # Check if columns exist
+  if (!all(c(mean_col, min_col, max_col) %in% names(data))) {
+    err_msg <- sprintf("Missing required columns. Available: %s", paste(names(data), collapse=", "))
+    log_error(err_msg)
+    stop(err_msg)
+  }
+  
+  log_info("Creating plot object")
+  p <- plotly::plot_ly()
+  
+  log_info("Adding mean trace")
+  p <- plotly::add_trace(p,
+    x = data$date,
+    y = as.numeric(data[[mean_col]]),
+    name = "Mean",
+    type = "scatter",
+    mode = "lines",
+    line = list(color = "rgb(0, 100, 0)")
+  )
+  
+  log_info("Adding min trace")
+  p <- plotly::add_trace(p,
+    x = data$date,
+    y = as.numeric(data[[min_col]]),
+    name = "Min",
+    type = "scatter",
+    mode = "lines",
+    line = list(color = "rgb(200, 200, 200)")
+  )
+  
+  log_info("Adding max trace")
+  p <- plotly::add_trace(p,
+    x = data$date,
+    y = as.numeric(data[[max_col]]),
+    name = "Max",
+    type = "scatter",
+    mode = "lines",
+    line = list(color = "rgb(200, 200, 200)")
+  )
+  
+  log_info("Adding layout")
+  p <- plotly::layout(p,
+    title = paste("Time Series for", band_name),
+    xaxis = list(title = "Date"),
+    yaxis = list(title = band_name)
+  )
+  
+  log_info("Plot created successfully")
+  return(p)
+}
+
+generate_six_digit_number <- function() {
+
+# Generate random digits between 0 and 9
+digits <- sample(0:9, 6, replace = TRUE)
+
+# Combine the digits into a single string
+number_string <- paste(digits, collapse = "")
+
+# Convert the string to an integer
+number <- as.integer(number_string)
+return(number)
+}
+
+# Function to convert WKT POLYGON to the desired JSON format
+wkt_to_json <- function(wkt) {
+  # Remove the "POLYGON ((" and "))" parts
+  wkt <- gsub("POLYGON \\(\\(|\\)\\)", "", wkt)
+  
+  # Split the coordinates by comma
+  coords <- strsplit(wkt, ",")[[1]]
+  
+  # Convert the coordinates to a nested list
+  coordinates <- lapply(coords, function(coord) {
+    as.numeric(strsplit(trimws(coord), " ")[[1]])
+  })
+  
+  # Create the JSON-like list
+  json_list <- list(
+    properties = list(
+      `_leaflet_id` = generate_six_digit_number(),
+      feature_type = "polygon"
+    ),
+    geometry = list(
+      type = "Polygon",
+      coordinates = list(coordinates)
+    )
+  )
+  
+  return(json_list)
+}
+
+
 # Time Series Module UI
-timeSeriesUI <- function(id, available_products) {
+timeSeriesUI <- function(id) {
   ns <- NS(id)
   
   div(
     hr(),
+    uiOutput(ns('file1_ui')), ## instead of fileInput('file1', label = NULL)
     selectInput(ns("product"), "Select Satellite Product",
-               choices = available_products,
-               selected = NULL),
+                choices = available_products,
+                selected = NULL),
     checkboxInput(ns("summariseGeometry"), "Summarise Geometry", value = FALSE),
     uiOutput(ns("bandSelector")),
     dateRangeInput(ns("dateRange"), "Select Date Range",
-                  start = Sys.Date() - 365,
-                  end = Sys.Date(),
-                  format = "yyyy-mm-dd"),
+                   start = Sys.Date() - 365,
+                   end = Sys.Date(),
+                   format = "yyyy-mm-dd"),
     actionButton(ns("getData"), "Get Time Series",
-                class = "btn-primary btn-block",
-                style = "margin-top: 20px;")
+                 class = "btn-primary btn-block",
+                 style = "margin-top: 20px;")
   )
 }
 
 # Time Series Module Server
-timeSeriesServer <- function(id, client, drawnFeatures) {
+timeSeriesServer <- function(id, leaflet_map = leaflet_map) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
+
+    mainInput <- leaflet_map$mapInput
+    map <- leaflet_map$proxy
     
     # Reactive values for module state
     rv <- reactiveValues(
       timeSeriesData = NULL,
-      currentPlot = NULL
+      currentPlot = NULL,
+      userGeometry = NULL
     )
+    
+    # Handle drawn features
+    observeEvent(mainInput$map_draw_new_feature, {
+      feature_type <- mainInput$map_draw_new_feature$properties$feature_type
+      log_info(sprintf("User drew a new %s on the map", feature_type))
+      rv$userGeometry <- mainInput$map_draw_new_feature
+    })
+    
+    output$file1_ui <- renderUI({
+      fileInput(ns("kmlUpload"), "Upload KML geometry file", accept = ".kml")
+    })
+
+    # Handle deleted features
+    observeEvent(mainInput$map_draw_deleted_features, {
+      log_info("User deleted drawn features from the map")
+      rv$userGeometry <- NULL
+      map %>%
+        clearShapes()
+      output$file1_ui <- renderUI({
+        fileInput(ns("kmlUpload"), "Upload KML geometry file", accept = ".kml")
+      })
+    })
+
+    # Handle deleted features
+    observeEvent(rv$userGeometry, {
+      feature <- rv$userGeometry
+      log_info(sprintf("userGeometry updated: %s",toString(feature)))
+    })
+
+    # KML File Upload: read and add geometry to map
+    observeEvent(input$kmlUpload, {
+      kml_path <- input$kmlUpload$datapath
+      
+      # Read geometry from the KML file using sf with error handling
+      geom_sf <- tryCatch({
+        st_read(kml_path)
+      }, error = function(e) {
+        showNotification("Error reading KML file. Please check the file.", type = "error")
+        NULL
+      })
+      
+      geom_sf <- st_zm(geom_sf)
+
+      geom_sf <- st_cast(geom_sf, "MULTIPOLYGON") %>% st_cast("POLYGON")
+
+
+      geom_sf <- st_transform(geom_sf, crs = 4326)
+
+      # Add or update the KML geometry on the leaflet map:
+      map %>%
+        clearShapes() %>%
+        addPolygons(
+          data = geom_sf,
+          group = "Features",
+          #layerId = "Features",
+          fillColor = "blue",
+          fillOpacity = 0.2,
+          color = "blue",
+          weight = 2
+        ) %>%
+        flyToBounds(
+          lng1 = st_bbox(geom_sf)$xmin[[1]],
+          lat1 = st_bbox(geom_sf)$ymin[[1]],
+          lng2 = st_bbox(geom_sf)$xmax[[1]],
+          lat2 = st_bbox(geom_sf)$ymax[[1]]
+        ) %>%
+        showGroup("Features")
+      
+      showNotification("KML file loaded. You can now edit the geometry on the map.", type = "message")
+
+      # Extract the WKT representation of the geometry
+      wkt <- st_as_text(geom_sf$geometry)
+
+      # Convert the WKT to the desired JSON format
+      json_geometry <- wkt_to_json(wkt)
+
+      rv$userGeometry <- json_geometry
+
+    })
+    
+    # Observe draw events to update the map
+    # observeEvent(input$map_draw_new_feature, {
+    #   feature <- input$map_draw_new_feature
+    #   map %>%
+    #     addPolygons(
+    #       data = feature,
+    #       group = "Features",
+    #       fillColor = "blue",
+    #       fillOpacity = 0.2,
+    #       color = "blue",
+    #       weight = 2
+    #     )
+    # })
+    
+    # observeEvent(input$map_draw_edited_features, {
+    #   edited_features <- input$map_draw_edited_features
+    #   map %>%
+    #     clearGroup("Features") %>%
+    #     addPolygons(
+    #       data = edited_features,
+    #       group = "Features",
+    #       fillColor = "blue",
+    #       fillOpacity = 0.2,
+    #       color = "blue",
+    #       weight = 2
+    #     )
+    # })
+    
+    # observeEvent(input$map_draw_deleted_features, {
+    #   deleted_features <- input$map_draw_deleted_features
+    #   map %>%
+    #     clearGroup("Features")
+    # })
     
     # Dynamic band selector based on selected product
     output$bandSelector <- renderUI({
@@ -37,14 +270,14 @@ timeSeriesServer <- function(id, client, drawnFeatures) {
       band_names <- sapply(collection_info$bands, function(x) x$name)
       
       selectInput(ns("bands"), "Select Band/Index",
-                choices = band_names,
-                selected = band_names[1],
-                multiple = !input$summariseGeometry)
+                  choices = band_names,
+                  selected = band_names[1],
+                  multiple = !input$summariseGeometry)
     })
     
     # Get Time Series Data
     observeEvent(input$getData, {
-      req(drawnFeatures(), input$product, input$bands, input$dateRange)
+      req(rv$userGeometry, input$product, input$bands, input$dateRange)
       
       # Show modal with loading message
       showModal(modalDialog(
@@ -55,7 +288,7 @@ timeSeriesServer <- function(id, client, drawnFeatures) {
       ))
       
       tryCatch({
-        feature <- drawnFeatures()
+        feature <- rv$userGeometry
         feature_type <- feature$properties$feature_type
         coordinates <- feature$geometry$coordinates
         
@@ -212,319 +445,3 @@ timeSeriesServer <- function(id, client, drawnFeatures) {
     
   })
 }
-
-# Helper Functions
-prepareGeometry <- function(feature_type, coordinates, radius = NULL) {
-  if (feature_type == "polygon") {
-    list(type = "Polygon", coordinates = coordinates)
-  } else if (feature_type == "marker") {
-    coordinates <- unlist(coordinates)
-    list(type = "Point", coordinates = coordinates)
-  } else if (feature_type == "circle") {
-    points <- createCirclePoints(coordinates, radius)
-    list(type = "Polygon", coordinates = list(points))
-  }
-}
-
-getSummarizedTimeSeries <- function(client, product, geom, bands, dateRange) {
-  log_info("Getting summarized time series")
-  log_info(paste("Processing band:", bands[1]))
-  
-  tryCatch({
-    # Convert dates to required format
-    start_date <- format(dateRange[1], "%Y-%m-%dT00:00:00Z")
-    end_date <- format(dateRange[2], "%Y-%m-%dT23:59:59Z")
-    
-    # Preparar o payload no formato correto
-    payload <- list(
-      coordinates = geom$coordinates,
-      type = geom$type,
-      attributes = list(bands[1]),
-      start_date = start_date,
-      end_date = end_date,
-      apply_attribute_scale = TRUE,
-      pixel_collision_type = "center"
-    )
-    
-    log_info(paste("Collection:", product))
-    
-    # Log URL completa para GET requests
-    if (geom$type == "Point") {
-      query_params <- list(
-        geom = jsonlite::toJSON(list(
-          coordinates = geom$coordinates[[1]][[1]],
-          type = "Point"
-        ), auto_unbox = TRUE),
-        attributes = bands[1],
-        start_datetime = start_date,
-        end_datetime = end_date,
-        applyAttributeScale = TRUE,
-        pixelCollisionType = "center"
-      )
-      
-      full_url <- paste0(
-        client$base_url, "/", product, "/timeseries?",
-        paste(mapply(function(k, v) paste0(k, "=", URLencode(as.character(v))),
-                    names(query_params),
-                    query_params),
-              collapse = "&")
-      )
-      log_info(paste("GET URL:", full_url))
-    } else {
-      log_info(paste("POST URL:", paste0(client$base_url, "/", product, "/timeseries")))
-      log_info("POST Payload:")
-      print(jsonlite::toJSON(payload, auto_unbox = TRUE, pretty = TRUE))
-    }
-    
-    # Get time series data usando o método correto
-    response <- if (geom$type == "Point") {
-      client$timeseries_get(collectionId = product,
-                          geom = list(
-                            coordinates = geom$coordinates[[1]][[1]],
-                            type = "Point"
-                          ),
-                          attributes = bands[1],
-                          start_datetime = start_date,
-                          end_datetime = end_date,
-                          applyAttributeScale = TRUE,
-                          pixelCollisionType = "center")
-    } else {
-      client$timeseries_post(collectionId = product,
-                           payload = payload)
-    }
-    
-    log_info("Processing response")
-    log_info("Response structure:")
-    print(response)
-    
-    # Extract timeline and values safely
-    timeline <- response$timeline
-    if (is.null(timeline)) {
-      stop("No timeline data in response")
-    }
-    
-    values <- response$attributes[[1]]$values
-    if (is.null(values)) {
-      stop("No values data in response")
-    }
-    
-    log_info(paste("Got", length(timeline), "timestamps and", length(values), "values"))
-    
-    # Create the data frame
-    df <- data.frame(
-      timeline = as.POSIXct(timeline, format = "%Y-%m-%dT%H:%M:%SZ", tz = "UTC"),
-      stringsAsFactors = FALSE
-    )
-    
-    # Calculate statistics
-    df[[paste0(bands[1], "_mean")]] <- as.numeric(values)
-    df[[paste0(bands[1], "_min")]] <- as.numeric(values) * 0.9
-    df[[paste0(bands[1], "_max")]] <- as.numeric(values) * 1.1
-    
-    log_info(paste("Created data frame with columns:", paste(names(df), collapse = ", ")))
-    
-    return(df)
-    
-  }, error = function(e) {
-    log_error(paste("Error in getSummarizedTimeSeries:", e$message))
-    stop(e$message)
-  })
-}
-
-getRegularTimeSeries <- function(client, product, geom, bands, dateRange) {
-  log_info("Getting regular time series")
-  
-  tryCatch({
-    # Convert dates to required format
-    start_date <- format(dateRange[1], "%Y-%m-%dT00:00:00Z")
-    end_date <- format(dateRange[2], "%Y-%m-%dT23:59:59Z")
-    
-    # Preparar o payload no formato correto
-    payload <- list(
-      coordinates = geom$coordinates,
-      type = geom$type,
-      attributes = as.list(bands),
-      start_date = start_date,
-      end_date = end_date,
-      apply_attribute_scale = TRUE,
-      pixel_collision_type = "center"
-    )
-    
-    log_info(paste("Collection:", product))
-    
-    # Log URL completa para GET requests
-    if (geom$type == "Point") {
-      query_params <- list(
-        geom = jsonlite::toJSON(list(
-          coordinates = geom$coordinates[[1]][[1]],
-          type = "Point"
-        ), auto_unbox = TRUE),
-        attributes = paste(bands, collapse = ","),
-        start_datetime = start_date,
-        end_datetime = end_date,
-        applyAttributeScale = TRUE,
-        pixelCollisionType = "center"
-      )
-      
-      full_url <- paste0(
-        client$base_url, "/", product, "/timeseries?",
-        paste(mapply(function(k, v) paste0(k, "=", URLencode(as.character(v))),
-                    names(query_params),
-                    query_params),
-              collapse = "&")
-      )
-      log_info(paste("GET URL:", full_url))
-    } else {
-      log_info(paste("POST URL:", paste0(client$base_url, "/", product, "/timeseries")))
-      log_info("POST Payload:")
-      print(jsonlite::toJSON(payload, auto_unbox = TRUE, pretty = TRUE))
-    }
-    
-    # Get time series data usando o método correto
-    data <- if (geom$type == "Point") {
-      client$timeseries_get(collectionId = product, 
-                          geom = list(
-                            coordinates = geom$coordinates[[1]][[1]],
-                            type = "Point"
-                          ),
-                          attributes = bands,
-                          start_datetime = start_date,
-                          end_datetime = end_date,
-                          applyAttributeScale = TRUE,
-                          pixelCollisionType = "center")
-    } else {
-      client$timeseries_post(collectionId = product, 
-                           payload = payload)
-    }
-    
-    # Convert to data frame
-    df <- data.frame(
-      timeline = as.POSIXct(data$timeline, format = "%Y-%m-%dT%H:%M:%SZ")
-    )
-    
-    # Add values for each band
-    for (i in seq_along(bands)) {
-      df[[bands[i]]] <- data$attributes[[i]]$values
-    }
-    
-    return(df)
-    
-  }, error = function(e) {
-    log_error(paste("Error in getRegularTimeSeries:", e$message))
-    stop(e$message)
-  })
-}
-
-createSummaryPlot <- function(data, band_name) {
-  log_info(sprintf("Creating summary plot for band: %s", band_name))
-  log_info(sprintf("Data columns: %s", paste(names(data), collapse=", ")))
-  
-  # Define column names
-  mean_col <- paste0(band_name, "_mean")
-  min_col <- paste0(band_name, "_min")
-  max_col <- paste0(band_name, "_max")
-  
-  log_info(sprintf("Looking for columns: %s, %s, %s", mean_col, min_col, max_col))
-  
-  # Check if columns exist
-  if (!all(c(mean_col, min_col, max_col) %in% names(data))) {
-    err_msg <- sprintf("Missing required columns. Available: %s", paste(names(data), collapse=", "))
-    log_error(err_msg)
-    stop(err_msg)
-  }
-  
-  log_info("Creating plot object")
-  p <- plotly::plot_ly()
-  
-  log_info("Adding mean trace")
-  p <- plotly::add_trace(p,
-    x = data$date,
-    y = as.numeric(data[[mean_col]]),
-    name = "Mean",
-    type = "scatter",
-    mode = "lines",
-    line = list(color = "rgb(0, 100, 0)")
-  )
-  
-  log_info("Adding min trace")
-  p <- plotly::add_trace(p,
-    x = data$date,
-    y = as.numeric(data[[min_col]]),
-    name = "Min",
-    type = "scatter",
-    mode = "lines",
-    line = list(color = "rgb(200, 200, 200)")
-  )
-  
-  log_info("Adding max trace")
-  p <- plotly::add_trace(p,
-    x = data$date,
-    y = as.numeric(data[[max_col]]),
-    name = "Max",
-    type = "scatter",
-    mode = "lines",
-    line = list(color = "rgb(200, 200, 200)")
-  )
-  
-  log_info("Adding layout")
-  p <- plotly::layout(p,
-    title = paste("Time Series for", band_name),
-    xaxis = list(title = "Date"),
-    yaxis = list(title = band_name)
-  )
-  
-  log_info("Plot created successfully")
-  return(p)
-}
-
-createRegularPlot <- function(data, bands) {
-  log_info("Starting to create regular plot")
-  log_info(sprintf("Available columns in data: %s", paste(names(data), collapse=", ")))
-  
-  plot <- plotly::plot_ly()
-  
-  for (band in bands) {
-    if (!(band %in% names(data))) {
-      err_msg <- sprintf("Band %s not found in data. Available columns: %s",
-                        band, paste(names(data), collapse=", "))
-      log_error(err_msg)
-      stop(err_msg)
-    }
-    
-    plot <- plotly::add_trace(
-      plot,
-      x = data$timeline,
-      y = data[[band]],
-      type = 'scatter',
-      mode = 'lines',
-      name = band
-    )
-  }
-  
-  plot <- plotly::layout(
-    plot,
-    title = "Time Series",
-    xaxis = list(title = "Date"),
-    yaxis = list(title = "Value"),
-    showlegend = TRUE
-  )
-  
-  log_info("Regular plot created successfully")
-  return(plot)
-}
-
-createCirclePoints <- function(center, radius, npoints = 32) {
-  angles <- seq(0, 2*pi, length.out = npoints)
-  # Convert radius from meters to degrees (approximate)
-  radius_deg <- radius / 111000  # 1 degree ≈ 111km at equator
-  
-  points <- sapply(angles, function(a) {
-    c(
-      center[1] + radius_deg * cos(a),
-      center[2] + radius_deg * sin(a)
-    )
-  })
-  
-  # Return points in the format required for a polygon
-  return(t(points))
-} 

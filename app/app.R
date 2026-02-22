@@ -17,43 +17,28 @@ library(sf)
 library(leafem)
 library(raster)
 library(purrr)  # Adicionada esta linha
-
-source("wtss/wtss_client.R")
+library(BBMQuant)
 
 # Source modules
+source("wtss/wtss_client.R")
+
+# Source other modules
+source("modules/startup_modal_module.R")
 source("modules/time_series_module.R")
 source("modules/image_viewer_module.R")
+source("modules/leaflet_map_module.R")
 
-# Set up logging configuration
-log_dir <- "logs"
-if (!dir.exists(log_dir)) {
-  dir.create(log_dir)
-}
-log_file <- file.path(log_dir, paste0("wtss_app_", format(Sys.time(), "%Y%m%d"), ".log"))
 log_threshold(TRACE)
-log_appender(appender_file(log_file))
-
-# Initialize the WTSS client
-wtss_inpe <- "https://data.inpe.br/bdc/wtss/v4/"
-client <- WTSSClient$new(base_url = wtss_inpe)
-
-# Get available collections for the dropdown
-capabilities <- client$get_capabilities()
-available_products <- sapply(capabilities$available_collections, function(x) x$name)
-
-# Initialize STAC client and get collections
-stac_obj <- stac("https://data.inpe.br/bdc/stac/v1/")
-collections <- stac_obj %>%
-  collections() %>%
-  get_request()
-
-available_collections <- sapply(collections$collections, function(x) x$id)
+log_appender(appender_file(stderr()))
 
 # UI Definition
 ui <- fluidPage(
   useShinyjs(),
   tags$head(
     tags$style(HTML("
+      .center-heading {
+        text-align: center;
+      }
       .sidebar { 
         height: calc(100vh - 20px);
         overflow-y: auto;
@@ -74,83 +59,42 @@ ui <- fluidPage(
     "))
   ),
   div(class = "sidebar",
-    tabsetPanel(id = "mainTabs",
-      tabPanel("Time Series", 
-               timeSeriesUI("timeSeries", available_products)),
-      tabPanel("Image Viewer", 
-               imageViewerUI("imageViewer", available_collections))
-    )
+      tags$img(src = "logo_h.png", width = "100%"),
+      h2(class = "center-heading", "S.A.T."),
+      tabsetPanel(id = "mainTabs",
+                  tabPanel("Time Series", 
+                           timeSeriesUI("timeSeries")),
+                  tabPanel("Image Viewer", 
+                           imageViewerUI("imageViewer"))
+      ),
+      tags$a(href = "https://rstudio.bocombbm.com.br/app/quant_agro_doc/apps/sat.html", 
+             h4("Help (?)"), target = "_blank")
   ),
   div(class = "map-container",
-    leafletOutput("map", height = "100%")
+      # Use the Leaflet map module UI
+      leafletMapUI("leafletMap")
   )
 )
 
 # Server Definition
 server <- function(input, output, session) {
   # Log application start
-  log_info("WTSS Explorer application started")
+  log_info("SAT application started")
   
-  # Reactive values for main app state
-  rv <- reactiveValues(
-    drawnFeatures = NULL,
-    mapBounds = NULL
+  startupModalServer("startupModal")
+  
+  # Initialize Leaflet map module
+  leaflet_map <- leafletMapServer("leafletMap")
+  
+  # Initialize other modules with access to the Leaflet map proxy and bounds
+  timeSeriesServer("timeSeries", 
+                   leaflet_map = leaflet_map
   )
   
-  # Initialize map
-  output$map <- renderLeaflet({
-    log_info("Initializing map view")
-    leaflet() %>%
-      addTiles() %>%
-      addProviderTiles(providers$OpenStreetMap, group = "OpenStreetMap") %>%
-      addProviderTiles(providers$Esri.WorldImagery, group = "Satellite") %>%
-      addLayersControl(
-        baseGroups = c("OpenStreetMap", "Satellite"),
-        overlayGroups = character(0),
-        options = layersControlOptions(collapsed = TRUE)
-      ) %>%
-      addDrawToolbar(
-        targetGroup = 'Features',
-        editOptions = editToolbarOptions(),
-        polylineOptions = FALSE,
-        rectangleOptions = TRUE,
-        circleOptions = TRUE,
-        markerOptions = TRUE,
-        polygonOptions = TRUE
-      ) %>%
-      setView(lng = -51.9253, lat = -14.2350, zoom = 4)
-  })
-  
-  # Map proxy for updates
-  map <- leafletProxy("map")
-  
-  # Store map bounds when they change
-  observeEvent(input$map_bounds, {
-    rv$mapBounds <- input$map_bounds
-  })
-  
-  # Handle drawn features
-  observeEvent(input$map_draw_new_feature, {
-    feature_type <- input$map_draw_new_feature$properties$feature_type
-    log_info(sprintf("User drew a new %s on the map", feature_type))
-    rv$drawnFeatures <- input$map_draw_new_feature
-  })
-  
-  # Handle deleted features
-  observeEvent(input$map_draw_deleted_features, {
-    log_info("User deleted drawn features from the map")
-    rv$drawnFeatures <- NULL
-  })
-  
-  # Initialize modules
-  timeSeriesServer("timeSeries", 
-                   client = client,
-                   drawnFeatures = reactive({ rv$drawnFeatures }))
-  
   imageViewerServer("imageViewer",
-                   stac_obj = stac_obj,
-                   mapBounds = reactive({ rv$mapBounds }),
-                   map = map)
+                    leaflet_map = leaflet_map
+                    
+  )
   
   # Log when session ends
   session$onSessionEnded(function() {
@@ -158,5 +102,71 @@ server <- function(input, output, session) {
   })
 }
 
-# Run the application
-shinyApp(ui = ui, server = server) 
+# Run the application locally
+#shinyApp(ui = ui, server = server, options = list(host = "0.0.0.0", port = 8888))
+
+ShinyAppBBM(
+  ui = ui,
+  server = server,
+  tenant = "44d572a6-0370-4d7f-a52c-5c3616252aac",
+  app_id = "#{app_id}#",
+  app_secret = "#{app_secret}#",
+  resource <- c("openid"),
+  redirect <- "https://rstudio.bocombbm.com.br/app/App_sat",
+  grantedUsers = c(
+    "gabrielvasconcelos@bocombbm.com.br",
+    "danielreis@bocombbm.com.br",
+    "reneroliveira@bocombbm.com.br",
+    "joaoluizneto@bocombbm.com.br",
+    "zuilhosegundo@bocombbm.com.br",
+    "brunasantos@bocombbm.com.br",
+    "thalescosta@bocombbm.com.br",
+    "octaviorodrigues@bocombbm.com.br",
+    "vitojarque@bocombbm.com.br",
+    "gustavolemos@bocombbm.com.br",
+    "guilhermedurante@bocombbm.com.br",
+    "milenaravanini@bancobbm.onmicrosoft.com",
+    "murilosouza@bocombbm.com.br",
+    "joaopguimaraes@bocombbm.com.br",
+    "edgardguitton@bocombbm.com.br",
+    "lizrabelo@bocombbm.com.br",
+    "lucassilveira@bocombbm.com.br",
+    "icaroramires@bocombbm.com.br",
+    "camilalosano@bocombbm.com.br",
+    "joelevinson@bocombbm.com.br",
+    "marciuscesar@bocombbm.com.br",
+    "Joesiqueira@bocombbm.com.br",
+    "lucasfavaro@bocombbm.com.br",
+    "luizevora@bocombbm.com.br",
+    "victorbreves@bocombbm.com.br",
+    "matheusvarela@bancobbm.onmicrosoft.com",
+    "felipevianna@bocombbm.com.br",
+    "joaostrauss@bocombbm.com.br",
+    "camilacaleones@bocombbm.com.br",
+    "renanmiguel@bocombbm.com.br",
+    "mariapavan@bocombbm.com.br",
+    "isabelafarina@bocombbm.com.br",
+    "amandabeckers@bocombbm.com.br",
+    "eduardomello@bocombbm.com.br",
+    "gustavocateb@bocombbm.com.br",
+    "brunoleitao@bocombbm.com.br",
+    "marcosjunqueira@bocombbm.com.br",
+    "luizfortes@bocombbm.com.br",
+    "mateusamaro@bocombbm.com.br",
+    "guilhermedurante@bocombbm.com.br",
+    "vitorlagemann@bocombbm.com.br",
+    "leonardooliveira@bocombbm.com.br",
+    "vitorbossolani@bocombbm.com.br",
+    "rafaelmonteiro@bocombbm.com.br",
+    "fabioabbondi@bocombbm.com.br",
+    "henriquesilvestre@bocombbm.com.br",
+    "BrenoCampos@bocombbm.com.br",
+    "Brenocampos@bocombbm.com.br",
+    "brenoCampos@bocombbm.com.br",
+    "brenocampos@bocombbm.com.br",
+    "gabrielmattos@bocombbm.com.br",
+    "guilhermemazzoni@bocombbm.com.br",
+    "ramiromonarcha@bocombbm.com.br",
+    "renanmiguel@bocombbm.com.br"
+  ),authEnabled = TRUE#, port=8888  # Set to FALSE to disable authentication for testing  
+)

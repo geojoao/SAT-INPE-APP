@@ -1,9 +1,9 @@
 # MapBiomas API Client for R
-# Documentação: https://prd.plataforma.mapbiomas.org/api/docs#/
+# Documentacao: https://prd.plataforma.mapbiomas.org/api/docs#/
 #
 # API v1.0 - OAS 3.0
-# Permite extrair estatísticas de área, distribuição de classes, transições,
-# histórico de pixels e outras funcionalidades do MapBiomas.
+# Permite extrair estatisticas de area, distribuicao de classes, transicoes,
+# historico de pixels e outras funcionalidades do MapBiomas.
 # Suporta geometria via WKT, GeoJSON ou territory_id.
 
 library(httr)
@@ -12,14 +12,14 @@ library(R6)
 library(logger)
 library(sf)
 
-# Helper function to log request details (evita { } para não conflitar com logger/glue)
+# Helper function to log request details (evita { } para nao conflitar com logger/glue)
 log_request_details <- function(method, url, params = NULL, payload = NULL) {
   log_info(paste0("MapBiomas API Request - ", method, " ", url))
 }
 
 # Converte WKT ou GeoJSON para formato de coordenadas da API MapBiomas
 # API espera: [[[lng,lat],[lng,lat],...]] (Polygon coordinates)
-# Limite: geometria deve ter área < 1.000.000 ha
+# Limite: geometria deve ter area < 1.000.000 ha
 geometry_to_api_coords <- function(geometry) {
   if (is.character(geometry)) {
     geom_str <- trimws(geometry)
@@ -58,7 +58,7 @@ geometry_to_api_coords <- function(geometry) {
       if (geometry$type == "MultiPolygon") return(geometry$coordinates[[1]])
       if (geometry$type == "Feature") return(geometry_to_api_coords(geometry$geometry))
     }
-    stop("GeoJSON inválido: deve ter type e coordinates")
+    stop("GeoJSON invalido: deve ter type e coordinates")
   }
   if (inherits(geometry, "sf") || inherits(geometry, "sfc")) {
     geom_sf <- st_transform(st_sfc(st_geometry(geometry)[[1]]), 4326)
@@ -351,8 +351,8 @@ MapBiomasAPIClient <- R6::R6Class(
       }
     },
 
-    # Retorna itens folha da legenda (sem filhos) para evitar dupla contagem de área
-    # region, legend_key: parâmetros da API; retorna data.frame com pixelValue, name, color
+    # Retorna itens folha da legenda (sem filhos) para evitar dupla contagem de area
+    # region, legend_key: parametros da API; retorna data.frame com pixelValue, name, color
     get_legend_leaf_items = function(region = "brazil", legend_key = "default") {
       leg <- self$get_legend_by_key(region, legend_key)
       get_legend_leaf_items_from_response(leg)
@@ -455,7 +455,7 @@ MapBiomasAPIClient <- R6::R6Class(
       }
     },
 
-    # GET /{region}/maps/pixel-history - Get pixel history (histórico de classes em um ponto)
+    # GET /{region}/maps/pixel-history - Get pixel history (historico de classes em um ponto)
     get_pixel_history = function(region, longitude, latitude,
                                   subtheme_key, legend_key, pixel_value,
                                   territory_id = NULL) {
@@ -581,17 +581,17 @@ MapBiomasAPIClient <- R6::R6Class(
 
     # ========== STATISTICS ==========
 
-    # GET /{region}/statistics/area - Get area statistics (distribuição de área por classes)
-    # Parâmetros: subthemeKey, legendKey, pixelValue (array), year
+    # GET /{region}/statistics/area - Get area statistics (distribuicao de area por classes)
+    # Parametros: subthemeKey, legendKey, pixelValue (array), year
     # E um de: territory_id OU geometry (WKT, GeoJSON ou objeto sf)
-    # Limite: geometria customizada deve ter área < 1.000.000 ha
+    # Limite: geometria customizada deve ter area < 1.000.000 ha
     get_area_statistics = function(region, subtheme_key, legend_key, pixel_value,
                                    year, territory_id = NULL, geometry = NULL) {
       if (is.null(territory_id) && is.null(geometry)) {
-        stop("Forneça territory_id ou geometry (WKT/GeoJSON)")
+        stop("Forneca territory_id ou geometry (WKT/GeoJSON)")
       }
       if (!is.null(territory_id) && !is.null(geometry)) {
-        stop("Forneça apenas territory_id OU geometry, não ambos")
+        stop("Forneca apenas territory_id OU geometry, nao ambos")
       }
       url <- paste0(self$base_url, "/", region, "/statistics/area")
       pixel_part <- paste(paste0("pixelValue=", as.integer(pixel_value)), collapse = "&")
@@ -707,7 +707,7 @@ MapBiomasAPIClient <- R6::R6Class(
       }
     },
 
-    # GET /{region}/statistics/task/{id} - Check statistics task by id (para transições assíncronas)
+    # GET /{region}/statistics/task/{id} - Check statistics task by id (para transicoes assincronas)
     get_statistics_task = function(region, task_id) {
       url <- paste0(self$base_url, "/", region, "/statistics/task/", task_id)
       log_request_details("GET", url)
@@ -720,7 +720,7 @@ MapBiomasAPIClient <- R6::R6Class(
       }
     },
 
-    # Helper: Aguarda task de estatísticas completar (polling)
+    # Helper: Aguarda task de estatisticas completar (polling)
     wait_for_statistics_task = function(region, task_id, max_wait_sec = 300, poll_interval_sec = 5) {
       elapsed <- 0
       while (elapsed < max_wait_sec) {
@@ -737,8 +737,8 @@ MapBiomasAPIClient <- R6::R6Class(
       stop("Timeout waiting for statistics task")
     },
 
-    # ========== HELPER: Distribuição de área por classes para geometria ==========
-    # Para geometria customizada: 1) use territoryId de um território existente, ou
+    # ========== HELPER: Distribuicao de area por classes para geometria ==========
+    # Para geometria customizada: 1) use territoryId de um territorio existente, ou
     # 2) upload via upload_territory e use o ID retornado
     # Exemplo: coverage_lclu + legend default = classes de cobertura (1=Forest, 3=Forest Formation, etc)
 
@@ -760,7 +760,7 @@ MapBiomasAPIClient <- R6::R6Class(
   )
 )
 
-# Helper: Extrai itens folha da legenda (sem filhos) para evitar dupla contagem de área
+# Helper: Extrai itens folha da legenda (sem filhos) para evitar dupla contagem de area
 get_legend_leaf_items_from_response <- function(legend_response) {
   `%||%` <- function(x, y) if (is.null(x)) y else x
   items <- legend_response$legend$items
@@ -820,7 +820,7 @@ parse_area_statistics_to_df <- function(api_response) {
 # verify if the file is the main file
 if (sys.nframe() == 0) {
   client <- MapBiomasAPIClient$new()
-  # Exemplo: distribuição de área para Brasil (territoryId 1-1-1)
+  # Exemplo: distribuicao de area para Brasil (territoryId 1-1-1)
   # result <- client$get_area_statistics("brazil", "coverage_lclu", "default", c(1,3,4), 2020, "1-1-1")
   # df <- parse_area_statistics_to_df(result)
 }

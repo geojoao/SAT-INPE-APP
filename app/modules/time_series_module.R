@@ -363,7 +363,7 @@ timeSeriesServer <- function(id, leaflet_map = leaflet_map) {
             stop("No data available in the response")
           }
           
-          # Extrair os dados da série temporal do primeiro resultado
+          # Extrair os dados da serie temporal do primeiro resultado
           time_series <- response$results[[1]]$time_series
           
           if (is.null(time_series$timeline) || length(time_series$timeline) == 0) {

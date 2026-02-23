@@ -10,12 +10,12 @@ library(htmltools)
 library(htmlwidgets)
 library(jsonlite)
 
-# Lista de workspaces a serem ignorados (pode adicionar mais se necessário)
+# Lista de workspaces a serem ignorados (pode adicionar mais se necessario)
 ignoredWorkspaces <- c("NASA", "INCRA")
 
 fixedBaseGroups <- c("OpenStreetMap", "Satellite")
 
-# Função para buscar as layers do GeoServer e agrupar por workspace
+# Funcao para buscar as layers do GeoServer e agrupar por workspace
 get_geoserver_layers <- function(
   url = "https://geoserver.bocombbm.com.br/geoserver/ows?service=WMS&version=1.3.0&request=GetCapabilities",
   ignore_workspaces = c()
@@ -46,7 +46,7 @@ get_geoserver_layers <- function(
           layer_name = sub(".*:", "", full_name)
         ) %>%
         filter(!workspace %in% ignore_workspaces)
-      log_info(paste("Encontradas", nrow(layers_df), "layers após filtragem."))
+      log_info(paste("Encontradas", nrow(layers_df), "layers apos filtragem."))
       return(layers_df)
     },
     error = function(e) {
@@ -56,7 +56,7 @@ get_geoserver_layers <- function(
   )
 }
 
-# Monta a árvore de overlays agrupando por workspace
+# Monta a arvore de overlays agrupando por workspace
 build_overlay_tree <- function(layers_df) {
   workspaces <- unique(layers_df$workspace)
   tree_children <- lapply(workspaces, function(ws) {
@@ -65,7 +65,7 @@ build_overlay_tree <- function(layers_df) {
       label = toupper(ws), # Workspace em CAPSLOCK
       collapsed = TRUE,
       children = lapply(1:nrow(ws_layers), function(i) {
-        # Nome do layer capitalizado e _ vira espaço
+        # Nome do layer capitalizado e _ vira espaco
         layer_title <- ws_layers$title[i]
         layer_title <- gsub("_", " ", layer_title)
         layer_title <- tools::toTitleCase(tolower(layer_title))
@@ -79,7 +79,7 @@ build_overlay_tree <- function(layers_df) {
   )
 }
 
-# Função para adicionar o controle de layers agrupadas (tree)
+# Funcao para adicionar o controle de layers agrupadas (tree)
 addLayersControlTree <- function(map, baseTree, overlayTree = NULL, options = list(), hiddenLayers = NULL) {
   layerTreePlugin <- htmlDependency(
     name = "Leaflet.Control.Layers.Tree",
@@ -155,7 +155,7 @@ addLayersControlTree <- function(map, baseTree, overlayTree = NULL, options = li
   onRender(map %>% registerPlugin(layerTreePlugin), jsCode)
 }
 
-# UI do módulo do mapa
+# UI do modulo do mapa
 leafletMapUI <- function(id) {
   ns <- NS(id)
   tagList(
@@ -167,10 +167,10 @@ leafletMapUI <- function(id) {
   )
 }
 
-# Server do módulo do mapa
+# Server do modulo do mapa
 leafletMapServer <- function(id) {
   moduleServer(id, function(input, output, session) {
-    log_info("Inicializando módulo do mapa Leaflet")
+    log_info("Inicializando modulo do mapa Leaflet")
     ns <- NS(id)
     # Busca as layers do GeoServer
     layers_df <- get_geoserver_layers(ignore_workspaces = ignoredWorkspaces)

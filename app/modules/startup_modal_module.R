@@ -3,7 +3,7 @@ startupModalUI <- function(id) {
   ns <- NS(id)
   
     modalDialog(
-        title = "Welcome to SAT - Sistema de Análise de Terras",
+        title = "Welcome to SAT - Sistema de Analise de Terras",
         easyClose = TRUE,
         footer = NULL,
         size = "m",

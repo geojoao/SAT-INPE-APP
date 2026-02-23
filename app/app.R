@@ -57,9 +57,9 @@ ui <- fluidPage(
         margin-left: 330px;
         padding: 0;
       }
-      /* Modais de resultados mais largos em todos os módulos */
-      .modal-dialog { max-width: 90%; width: 90%; }
-      .modal-lg { max-width: 90%; width: 90%; }
+      /* Modais de resultados mais largos em todos os modulos */
+      .modal-dialog { max-width: 90%; width: 90%; max-height: 90%; height: 90%; }
+      .modal-lg { max-width: 90%; width: 90%; max-height: 90%; height: 90%; }
     "))
   ),
   div(class = "sidebar",

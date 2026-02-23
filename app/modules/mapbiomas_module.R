@@ -1,6 +1,6 @@
-# Módulo MapBiomas - Distribuição de área por classes de cobertura
-# Usa a geometria desenhada no mapa para obter estatísticas do MapBiomas
-# Limite: área da geometria < 1.000.000 ha
+# Modulo MapBiomas - Distribuicao de Area por classes de cobertura
+# Usa a geometria desenhada no mapa para obter estatisticas do MapBiomas
+# Limite: Area da geometria < 1.000.000 ha
 # Classes e cores obtidas da API (apenas itens folha para evitar dupla contagem)
 
 source("mapbiomas/mapbiomas_client.R")
@@ -41,22 +41,22 @@ leaflet_feature_to_mapbiomas_geom <- function(feature) {
 
 `%||%` <- function(x, y) if (is.null(x)) y else x
 
-# UI do módulo MapBiomas
+# UI do modulo MapBiomas
 mapbiomasUI <- function(id) {
   ns <- NS(id)
   div(
     hr(),
     uiOutput(ns("file_ui")),
-    sliderInput(ns("yearRange"), "Período (anos)",
+    sliderInput(ns("yearRange"), "Periodo (anos)",
                 min = 1985, max = 2024, value = c(2015, 2024),
                 step = 1, sep = ""),
-    actionButton(ns("getAreaDistribution"), "Obter Distribuição de Área",
+    actionButton(ns("getAreaDistribution"), "Obter Distribuicao de Area",
                  class = "btn-primary btn-block",
                  style = "margin-top: 20px;")
   )
 }
 
-# Server do módulo MapBiomas
+# Server do modulo MapBiomas
 mapbiomasServer <- function(id, leaflet_map) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
@@ -120,7 +120,7 @@ mapbiomasServer <- function(id, leaflet_map) {
         showGroup("Features")
 
       rv$userGeometry <- list(source = "sf", geometry = geom_sf)
-      showNotification("KML carregado. Clique em 'Obter Distribuição de Área'.", type = "message")
+      showNotification("KML carregado. Clique em 'Obter Distribuicao de Area'.", type = "message")
     })
 
     observeEvent(input$getAreaDistribution, {
@@ -131,7 +131,7 @@ mapbiomasServer <- function(id, leaflet_map) {
         leaflet_feature_to_mapbiomas_geom(rv$userGeometry)
       }
       if (is.null(geom)) {
-        showNotification("Geometria inválida. Desenhe um polígono no mapa.", type = "error")
+        showNotification("Geometria invAlida. Desenhe um poligono no mapa.", type = "error")
         return()
       }
 
@@ -182,7 +182,7 @@ mapbiomasServer <- function(id, leaflet_map) {
 
         if (length(all_data) == 0) {
           removeModal()
-          showNotification("Nenhum dado retornado para o período.", type = "warning")
+          showNotification("Nenhum dado retornado para o periodo.", type = "warning")
           return()
         }
 
@@ -203,9 +203,9 @@ mapbiomasServer <- function(id, leaflet_map) {
                      type = "bar", marker = list(line = list(color = "white", width = 0.5))) %>%
           layout(
             barmode = "stack",
-            title = "Distribuição de Área por Classe de Cobertura (MapBiomas)",
+            title = "Distribuicao de Area por Classe de Cobertura (MapBiomas)",
             xaxis = list(title = "Ano"),
-            yaxis = list(title = "Área (hectares)"),
+            yaxis = list(title = "Area (hectares)"),
             legend = list(
               orientation = "v",
               x = 1.02,
@@ -219,7 +219,7 @@ mapbiomasServer <- function(id, leaflet_map) {
         rv$currentPlot <- p
         removeModal()
         showModal(modalDialog(
-          title = "Série Temporal - Distribuição de Área por Classe",
+          title = "Serie Temporal - Distribuicao de Area por Classe",
           plotlyOutput(ns("areaPlot"), height = "500px"),
           size = "l",
           easyClose = TRUE,

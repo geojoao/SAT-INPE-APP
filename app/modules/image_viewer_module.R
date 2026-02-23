@@ -6,6 +6,14 @@ collections <- stac_obj %>%
 
 available_collections <- sapply(collections$collections, function(x) x$id)
 
+# Default collection: Sentinel-2 (S2-16D-2)
+default_collection <- if ("S2-16D-2" %in% available_collections) {
+  "S2-16D-2"
+} else {
+  idx <- grep("^S2|sentinel-2", available_collections, ignore.case = TRUE)
+  if (length(idx) > 0) available_collections[idx[1]] else available_collections[1]
+}
+
 # Image Viewer Module UI
 imageViewerUI <- function(id) {
   ns <- NS(id)
@@ -14,7 +22,7 @@ imageViewerUI <- function(id) {
     hr(),
     selectInput(ns("collection"), "Select Collection",
                choices = available_collections,
-               selected = NULL),
+               selected = default_collection),
     # Dynamic band selector with RGB option
     uiOutput(ns("bandSelectorStac")),
     dateRangeInput(ns("dateRangeStac"), "Select Date Range",
@@ -82,6 +90,12 @@ imageViewerServer <- function(id, leaflet_map) {
         }
       }
       
+      # Default band: NDVI for single band; B04, B03, B02 for true color (Sentinel-2)
+      default_single <- if ("NDVI" %in% band_names) "NDVI" else band_names[1]
+      default_red <- if ("B04" %in% band_names) "B04" else band_names[1]
+      default_green <- if ("B03" %in% band_names) "B03" else band_names[min(2, length(band_names))]
+      default_blue <- if ("B02" %in% band_names) "B02" else band_names[min(3, length(band_names))]
+      
       tagList(
         checkboxInput(ns("viewAsRGB"), "View as RGB", FALSE),
         conditionalPanel(
@@ -89,19 +103,19 @@ imageViewerServer <- function(id, leaflet_map) {
           selectInput(ns("bandsStac"), "Select Bands",
                      choices = band_names,
                      multiple = TRUE,
-                     selected = NULL)
+                     selected = default_single)
         ),
         conditionalPanel(
           condition = sprintf("input['%s'] == true", ns("viewAsRGB")),
           selectInput(ns("redBand"), "Red Band",
                      choices = band_names,
-                     selected = NULL),
+                     selected = default_red),
           selectInput(ns("greenBand"), "Green Band",
                      choices = band_names,
-                     selected = NULL),
+                     selected = default_green),
           selectInput(ns("blueBand"), "Blue Band",
                      choices = band_names,
-                     selected = NULL)
+                     selected = default_blue)
         )
       )
     })
@@ -111,38 +125,45 @@ imageViewerServer <- function(id, leaflet_map) {
       req(input$collection, input$dateRangeStac, rv$mapBounds)
       log_info("Searching for assets")
       
-      tryCatch({
-        bbox <- as.numeric(c(
-          rv$mapBounds$west,
-          rv$mapBounds$south,
-          rv$mapBounds$east,
-          rv$mapBounds$north
-        ))
-        
-        datetime <- paste0(
-          format(input$dateRangeStac[1], "%Y-%m-%dT00:00:00Z"),
-          "/",
-          format(input$dateRangeStac[2], "%Y-%m-%dT23:59:59Z")
-        )
-        
-        items <- stac_obj %>%
-          stac_search(
-            collections = input$collection,
-            bbox = bbox,
-            datetime = datetime,
-            limit = 100
-          ) %>%
-          get_request()
-        
-        rv$availableAssets <- items
-        log_info(sprintf("Found %d assets", length(items$features)))
-        
-      }, error = function(e) {
-        log_error(sprintf("Error searching assets: %s", e$message))
-        showNotification(
-          paste("Error searching assets:", e$message),
-          type = "error"
-        )
+      withProgress(message = "Searching assets...", value = 0, {
+        tryCatch({
+          setProgress(0.2, detail = "Preparing search parameters...")
+          bbox <- as.numeric(c(
+            rv$mapBounds$west,
+            rv$mapBounds$south,
+            rv$mapBounds$east,
+            rv$mapBounds$north
+          ))
+          
+          datetime <- paste0(
+            format(input$dateRangeStac[1], "%Y-%m-%dT00:00:00Z"),
+            "/",
+            format(input$dateRangeStac[2], "%Y-%m-%dT23:59:59Z")
+          )
+          
+          setProgress(0.5, detail = "Querying STAC API...")
+          items <- stac_obj %>%
+            stac_search(
+              collections = input$collection,
+              bbox = bbox,
+              datetime = datetime,
+              limit = 100
+            ) %>%
+            get_request()
+          
+          setProgress(0.9, detail = "Processing results...")
+          rv$availableAssets <- items
+          log_info(sprintf("Found %d assets", length(items$features)))
+          
+          setProgress(1, detail = "Done!")
+          
+        }, error = function(e) {
+          log_error(sprintf("Error searching assets: %s", e$message))
+          showNotification(
+            paste("Error searching assets:", e$message),
+            type = "error"
+          )
+        })
       })
     })
     
@@ -196,16 +217,23 @@ imageViewerServer <- function(id, leaflet_map) {
       )[[1]]
       
       if (!is.null(selected_feature)) {
-        processAndLoadAsset(input, selected_feature, rv, map)
+        withProgress(message = "Loading asset to map...", value = 0, {
+          processAndLoadAsset(input, selected_feature, rv, map, session)
+          setProgress(1, detail = "Done!")
+        })
       }
     })
   })
 }
 
 # Helper Functions
-processAndLoadAsset <- function(input, selected_feature, rv, map) {
+processAndLoadAsset <- function(input, selected_feature, rv, map, session = NULL) {
   tryCatch({
     log_info("Processing selected asset")
+    
+    if (!is.null(session)) {
+      setProgress(0.1, detail = "Preparing asset URLs...", session = session)
+    }
     
     # Get asset URLs based on view mode
     if (!input$viewAsRGB) {
@@ -217,6 +245,10 @@ processAndLoadAsset <- function(input, selected_feature, rv, map) {
       asset_urls <- sapply(rgb_bands, function(band) {
         selected_feature$assets[[band]]$href
       })
+    }
+    
+    if (!is.null(session)) {
+      setProgress(0.3, detail = "Creating extent...", session = session)
     }
     
     # Create extent
@@ -232,10 +264,20 @@ processAndLoadAsset <- function(input, selected_feature, rv, map) {
     
     if (!input$viewAsRGB) {
       # Single band processing
+      if (!is.null(session)) {
+        setProgress(0.5, detail = "Loading and processing raster...", session = session)
+      }
       loadSingleBands(input, asset_urls, asset_date, map_bbox, rv, map)
     } else {
       # RGB composite processing
+      if (!is.null(session)) {
+        setProgress(0.5, detail = "Loading RGB composite...", session = session)
+      }
       loadRGBComposite(input, asset_urls, asset_date, map_bbox, rv, map)
+    }
+    
+    if (!is.null(session)) {
+      setProgress(0.9, detail = "Rendering on map...", session = session)
     }
     
     showNotification("Asset loaded successfully", type = "message")

@@ -32,7 +32,12 @@ RUN install2.r --error \
     terra \
     sf \
     leafem \
-    raster
+    raster \
+    purrr
+
+# Instala BBMQuant mockado (pacote local para desenvolvimento)
+COPY BBMQuant /tmp/BBMQuant
+RUN R -e "install.packages('/tmp/BBMQuant', repos = NULL, type = 'source')"
 
 # Expõe a porta do Shiny
 EXPOSE 3838

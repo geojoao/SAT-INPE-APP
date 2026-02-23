@@ -26,6 +26,7 @@ source("wtss/wtss_client.R")
 source("modules/startup_modal_module.R")
 source("modules/time_series_module.R")
 source("modules/image_viewer_module.R")
+source("modules/mapbiomas_module.R")
 source("modules/leaflet_map_module.R")
 
 log_threshold(TRACE)
@@ -56,6 +57,9 @@ ui <- fluidPage(
         margin-left: 330px;
         padding: 0;
       }
+      /* Modais de resultados mais largos em todos os módulos */
+      .modal-dialog { max-width: 90%; width: 90%; }
+      .modal-lg { max-width: 90%; width: 90%; }
     "))
   ),
   div(class = "sidebar",
@@ -65,7 +69,9 @@ ui <- fluidPage(
                   tabPanel("Time Series", 
                            timeSeriesUI("timeSeries")),
                   tabPanel("Image Viewer", 
-                           imageViewerUI("imageViewer"))
+                           imageViewerUI("imageViewer")),
+                  tabPanel("MapBiomas", 
+                           mapbiomasUI("mapbiomas"))
       ),
       tags$a(href = "https://rstudio.bocombbm.com.br/app/quant_agro_doc/apps/sat.html", 
              h4("Help (?)"), target = "_blank")
@@ -93,7 +99,10 @@ server <- function(input, output, session) {
   
   imageViewerServer("imageViewer",
                     leaflet_map = leaflet_map
-                    
+  )
+
+  mapbiomasServer("mapbiomas",
+                  leaflet_map = leaflet_map
   )
   
   # Log when session ends
@@ -111,8 +120,8 @@ ShinyAppBBM(
   tenant = "44d572a6-0370-4d7f-a52c-5c3616252aac",
   app_id = "#{app_id}#",
   app_secret = "#{app_secret}#",
-  resource <- c("openid"),
-  redirect <- "https://rstudio.bocombbm.com.br/app/App_sat",
+  resource = c("openid"),
+  redirect = "https://rstudio.bocombbm.com.br/app/App_sat",
   grantedUsers = c(
     "gabrielvasconcelos@bocombbm.com.br",
     "danielreis@bocombbm.com.br",

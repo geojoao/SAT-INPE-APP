@@ -47,6 +47,24 @@ install.packages(c("shiny", "plotly", "leaflet", "sf", "httr", "jsonlite", "logg
 
    ![Demonstração da Aplicação](SAT_INPE_APP-Demo.gif)
 
+## Testando com Docker
+
+Para rodar a aplicação com Docker (sem precisar instalar R localmente):
+
+1. Certifique-se de ter [Docker](https://docs.docker.com/get-docker/) e [Docker Compose](https://docs.docker.com/compose/install/) instalados.
+
+2. Na raiz do projeto, execute:
+
+   ```bash
+   docker compose up --build
+   ```
+
+3. Acesse a aplicação no navegador em [http://localhost:3838](http://localhost:3838).
+
+4. Para parar a aplicação, pressione `Ctrl+C` no terminal.
+
+> **Nota:** O build da imagem pode levar alguns minutos na primeira execução, pois instala todas as dependências R necessárias.
+
 ## Estrutura do Projeto
 
 ```
@@ -54,7 +72,6 @@ install.packages(c("shiny", "plotly", "leaflet", "sf", "httr", "jsonlite", "logg
 │
 ├── app
 │   ├── app.R               # Arquivo principal da aplicação Shiny
-│   ├── app_old.R           # Versão anterior da aplicação
 │   └── modules             # Módulos da aplicação
 │       ├── time_series_module.R  # Módulo para análise de séries temporais
 │       └── image_viewer_module.R  # Módulo para visualização de imagens

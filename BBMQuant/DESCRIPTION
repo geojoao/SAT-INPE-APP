@@ -1,0 +1,10 @@
+Package: BBMQuant
+Type: Package
+Title: BBM Quant - Abstrações para aplicações Shiny (versão mockada)
+Version: 0.1.0
+Author: BBM
+Maintainer: BBM <dev@bocombbm.com.br>
+Description: Pacote mockado para desenvolvimento local. Em produção, abstrai autenticação e outras funcionalidades das aplicações Shiny.
+License: MIT
+Depends: R (>= 4.0.0), shiny
+Suggests: 

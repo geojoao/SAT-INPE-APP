@@ -9,6 +9,9 @@ client <- WTSSClient$new(base_url = wtss_inpe)
 capabilities <- client$get_capabilities()
 available_products <- sapply(capabilities$available_collections, function(x) x$name)
 
+# Default product: MOIDS (mod13q1-6.1 - MODIS Terra Vegetation Indices)
+default_product <- if ("mod13q1-6.1" %in% available_products) "mod13q1-6.1" else available_products[1]
+
 createSummaryPlot <- function(data, band_name) {
   log_info(sprintf("Creating summary plot for band: %s", band_name))
   log_info(sprintf("Data columns: %s", paste(names(data), collapse=", ")))
@@ -122,11 +125,11 @@ timeSeriesUI <- function(id) {
     uiOutput(ns('file1_ui')), ## instead of fileInput('file1', label = NULL)
     selectInput(ns("product"), "Select Satellite Product",
                 choices = available_products,
-                selected = NULL),
+                selected = default_product),
     checkboxInput(ns("summariseGeometry"), "Summarise Geometry", value = FALSE),
     uiOutput(ns("bandSelector")),
     dateRangeInput(ns("dateRange"), "Select Date Range",
-                   start = Sys.Date() - 365,
+                   start = Sys.Date() - 365 * 10,
                    end = Sys.Date(),
                    format = "yyyy-mm-dd"),
     actionButton(ns("getData"), "Get Time Series",
@@ -269,9 +272,12 @@ timeSeriesServer <- function(id, leaflet_map = leaflet_map) {
       collection_info <- client$get_collection_info(input$product)
       band_names <- sapply(collection_info$bands, function(x) x$name)
       
+      # Default band: EVI if available, otherwise first band
+      default_band <- if ("EVI" %in% band_names) "EVI" else band_names[1]
+      
       selectInput(ns("bands"), "Select Band/Index",
                   choices = band_names,
-                  selected = band_names[1],
+                  selected = default_band,
                   multiple = !input$summariseGeometry)
     })
     

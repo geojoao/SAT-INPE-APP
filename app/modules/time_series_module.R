@@ -12,62 +12,81 @@ available_products <- sapply(capabilities$available_collections, function(x) x$n
 # Default product: MOIDS (mod13q1-6.1 - MODIS Terra Vegetation Indices)
 default_product <- if ("mod13q1-6.1" %in% available_products) "mod13q1-6.1" else available_products[1]
 
+# Summary stats: prefer p25/p75 (quantis), fallback to min/max
+get_summary_stat_cols <- function(data, band_name) {
+  mean_col <- paste0(band_name, "_mean")
+  p25_col <- paste0(band_name, "_p25")
+  p75_col <- paste0(band_name, "_p75")
+  min_col <- paste0(band_name, "_min")
+  max_col <- paste0(band_name, "_max")
+  
+  if (mean_col %in% names(data) && p25_col %in% names(data) && p75_col %in% names(data)) {
+    list(mean = mean_col, lower = p25_col, upper = p75_col, lower_label = "P25", upper_label = "P75")
+  } else if (mean_col %in% names(data) && min_col %in% names(data) && max_col %in% names(data)) {
+    list(mean = mean_col, lower = min_col, upper = max_col, lower_label = "Min", upper_label = "Max")
+  } else {
+    NULL
+  }
+}
+
 createSummaryPlot <- function(data, band_name) {
   log_info(sprintf("Creating summary plot for band: %s", band_name))
   log_info(sprintf("Data columns: %s", paste(names(data), collapse=", ")))
   
-  # Define column names
-  mean_col <- paste0(band_name, "_mean")
-  min_col <- paste0(band_name, "_min")
-  max_col <- paste0(band_name, "_max")
-  
-  log_info(sprintf("Looking for columns: %s, %s, %s", mean_col, min_col, max_col))
-  
-  # Check if columns exist
-  if (!all(c(mean_col, min_col, max_col) %in% names(data))) {
-    err_msg <- sprintf("Missing required columns. Available: %s", paste(names(data), collapse=", "))
+  cols <- get_summary_stat_cols(data, band_name)
+  if (is.null(cols)) {
+    err_msg <- sprintf("Missing required columns (mean + p25/p75 or min/max). Available: %s",
+                      paste(names(data), collapse=", "))
     log_error(err_msg)
     stop(err_msg)
   }
   
-  log_info("Creating plot object")
-  p <- plotly::plot_ly()
+  mean_vals <- as.numeric(data[[cols$mean]])
+  lower_vals <- as.numeric(data[[cols$lower]])
+  upper_vals <- as.numeric(data[[cols$upper]])
   
-  log_info("Adding mean trace")
+  # Plot com área preenchida: ribbon entre lower e upper, linha da média
+  p <- plotly::plot_ly(data, x = ~date)
+  
+  # Trace 1: limite inferior (base para o fill)
   p <- plotly::add_trace(p,
     x = data$date,
-    y = as.numeric(data[[mean_col]]),
-    name = "Mean",
+    y = lower_vals,
     type = "scatter",
     mode = "lines",
-    line = list(color = "rgb(0, 100, 0)")
+    line = list(width = 0, color = "rgba(0,0,0,0)"),
+    showlegend = FALSE
   )
-  
-  log_info("Adding min trace")
+  # Trace 2: limite superior com fill até o trace anterior (ribbon)
   p <- plotly::add_trace(p,
     x = data$date,
-    y = as.numeric(data[[min_col]]),
-    name = "Min",
+    y = upper_vals,
     type = "scatter",
     mode = "lines",
-    line = list(color = "rgb(200, 200, 200)")
+    line = list(width = 0, color = "rgba(0,0,0,0)"),
+    fill = "tonexty",
+    fillcolor = "rgba(34, 139, 34, 0.25)",
+    name = paste0(cols$lower_label, "-", cols$upper_label)
   )
   
-  log_info("Adding max trace")
+  # Linha da média
   p <- plotly::add_trace(p,
     x = data$date,
-    y = as.numeric(data[[max_col]]),
-    name = "Max",
+    y = mean_vals,
     type = "scatter",
     mode = "lines",
-    line = list(color = "rgb(200, 200, 200)")
+    line = list(color = "rgb(0, 100, 0)", width = 2.5),
+    name = "Mean"
   )
   
-  log_info("Adding layout")
   p <- plotly::layout(p,
-    title = paste("Time Series for", band_name),
-    xaxis = list(title = "Date"),
-    yaxis = list(title = band_name)
+    title = list(text = paste("Time Series for", band_name), font = list(size = 16)),
+    xaxis = list(title = "Date", gridcolor = "rgba(200,200,200,0.5)"),
+    yaxis = list(title = band_name, range = c(0, 1), gridcolor = "rgba(200,200,200,0.5)"),
+    plot_bgcolor = "rgba(250,250,250,0.8)",
+    paper_bgcolor = "white",
+    showlegend = TRUE,
+    legend = list(orientation = "h", x = 0, y = 1.1)
   )
   
   log_info("Plot created successfully")
@@ -132,10 +151,106 @@ timeSeriesUI <- function(id) {
                    start = Sys.Date() - 365 * 10,
                    end = Sys.Date(),
                    format = "yyyy-mm-dd"),
+    checkboxInput(
+      ns("applyQualityFilter"),
+      "Filter cloudy / low-quality days",
+      value = TRUE
+    ),
+    selectInput(
+      ns("smoothing"),
+      "Time series smoothing",
+      choices = c(
+        "None" = "none",
+        "Savitzky-Golay - light" = "sg_light",
+        "Savitzky-Golay - medium" = "sg_medium",
+        "Savitzky-Golay - strong" = "sg_strong"
+      ),
+      selected = "none"
+    ),
     actionButton(ns("getData"), "Get Time Series",
                  class = "btn-primary btn-block",
                  style = "margin-top: 20px;")
   )
+}
+
+# Helper to apply simple quality filter based on collection band metadata
+apply_quality_filter <- function(df, bands, collection_info, summarised = FALSE) {
+  if (is.null(collection_info) || is.null(collection_info$bands)) {
+    return(df)
+  }
+  
+  for (band in bands) {
+    meta <- NULL
+    for (b in collection_info$bands) {
+      if (!is.null(b$name) && b$name == band) {
+        meta <- b
+        break
+      }
+    }
+    if (is.null(meta)) next
+    
+    vmin <- NA
+    vmax <- NA
+    if (!is.null(meta$valid_range) && length(meta$valid_range) == 2) {
+      vmin <- meta$valid_range[1]
+      vmax <- meta$valid_range[2]
+    }
+    nodata <- if (!is.null(meta$nodata)) meta$nodata else NA
+    
+    if (!summarised) {
+      # Regular time series: one column per band
+      if (!band %in% names(df)) next
+      col_vals <- df[[band]]
+      if (!is.na(nodata)) {
+        col_vals[col_vals == nodata] <- NA
+      }
+      if (!is.na(vmin) && !is.na(vmax)) {
+        col_vals[col_vals < vmin | col_vals > vmax] <- NA
+      }
+      df[[band]] <- col_vals
+    } else {
+      # Summarised geometry: multiple stats per band (mean, min, max, p25, p75, etc.)
+      stat_suffixes <- c("_mean", "_min", "_max", "_p25", "_p75")
+      for (suf in stat_suffixes) {
+        col_name <- paste0(band, suf)
+        if (!col_name %in% names(df)) next
+        col_vals <- df[[col_name]]
+        if (!is.na(nodata)) {
+          col_vals[col_vals == nodata] <- NA
+        }
+        if (!is.na(vmin) && !is.na(vmax)) {
+          col_vals[col_vals < vmin | col_vals > vmax] <- NA
+        }
+        df[[col_name]] <- col_vals
+      }
+    }
+  }
+  
+  df
+}
+
+# Helper to clip all band values to [-1, 1]
+clip_to_unit_range <- function(df, bands, summarised = FALSE) {
+  if (!summarised) {
+    for (band in bands) {
+      if (!band %in% names(df)) next
+      vals <- df[[band]]
+      vals <- pmin(pmax(vals, -1), 1)
+      df[[band]] <- vals
+    }
+  } else {
+    stat_suffixes <- c("_mean", "_min", "_max", "_p25", "_p75")
+    for (band in bands) {
+      for (suf in stat_suffixes) {
+        col_name <- paste0(band, suf)
+        if (!col_name %in% names(df)) next
+        vals <- df[[col_name]]
+        vals <- pmin(pmax(vals, -1), 1)
+        df[[col_name]] <- vals
+      }
+    }
+  }
+  df
 }
 
 # Time Series Module Server
@@ -325,15 +440,30 @@ timeSeriesServer <- function(id, leaflet_map = leaflet_map) {
           geom <- list(type = "Polygon", coordinates = list(geom))
         }
 
+        # Get collection info for quality filtering
+        collection_info <- client$get_collection_info(input$product)
+
         if (input$summariseGeometry) {
-          # Use summarize_get for summarized geometry
-          response <- client$summarize_get(
-            collectionId = input$product,
-            geom = geom,
-            attributes = input$bands,
-            start_datetime = paste0(format(input$dateRange[1], "%Y-%m-%d"), "T00:00:00Z"),
-            end_datetime = paste0(format(input$dateRange[2], "%Y-%m-%d"), "T00:00:00Z")
-          )
+          # Use summarize_get: prefer mean + p25/p75 (quantis), fallback para mean/min/max
+          response <- tryCatch({
+            client$summarize_get(
+              collectionId = input$product,
+              geom = geom,
+              attributes = input$bands,
+              start_datetime = paste0(format(input$dateRange[1], "%Y-%m-%d"), "T00:00:00Z"),
+              end_datetime = paste0(format(input$dateRange[2], "%Y-%m-%d"), "T00:00:00Z"),
+              aggregations = c("mean", "p25", "p75")
+            )
+          }, error = function(e) {
+            log_info(sprintf("p25/p75 not available, using default aggregations: %s", e$message))
+            client$summarize_get(
+              collectionId = input$product,
+              geom = geom,
+              attributes = input$bands,
+              start_datetime = paste0(format(input$dateRange[1], "%Y-%m-%d"), "T00:00:00Z"),
+              end_datetime = paste0(format(input$dateRange[2], "%Y-%m-%d"), "T00:00:00Z")
+            )
+          })
           
           log_info("Processing summarized response")
           
@@ -343,8 +473,10 @@ timeSeriesServer <- function(id, leaflet_map = leaflet_map) {
           log_info(sprintf("Created summarized dataframe with columns: %s", 
                           paste(names(df), collapse=", ")))
           
-          # Create summary plot using the helper function
-          p <- createSummaryPlot(df, input$bands[1])
+          # Apply simple quality filter if requested
+          if (isTRUE(input$applyQualityFilter)) {
+            df <- apply_quality_filter(df, input$bands, collection_info, summarised = TRUE)
+          }
           
         } else {
           # Use regular time series get
@@ -391,6 +523,76 @@ timeSeriesServer <- function(id, leaflet_map = leaflet_map) {
           
           log_info(sprintf("Created dataframe with columns: %s", paste(names(df), collapse=", ")))
           
+          # Apply simple quality filter if requested
+          if (isTRUE(input$applyQualityFilter)) {
+            df <- apply_quality_filter(df, input$bands, collection_info, summarised = FALSE)
+          }
+        }
+
+        # Optional Savitzky-Golay smoothing on the time series (raw or summarised)
+        if (!is.null(input$smoothing) && input$smoothing != "none") {
+          window <- switch(
+            input$smoothing,
+            sg_light = 5,
+            sg_medium = 9,
+            sg_strong = 15,
+            5
+          )
+          if (window %% 2 == 0) {
+            window <- window + 1
+          }
+          
+          if (input$summariseGeometry) {
+            # Smooth summary statistics (mean, min, max, p25, p75) for each band
+            stat_suffixes <- c("_mean", "_min", "_max", "_p25", "_p75")
+            for (band in input$bands) {
+              for (suf in stat_suffixes) {
+                col_name <- paste0(band, suf)
+                if (!col_name %in% names(df)) next
+                ts_vals <- df[[col_name]]
+                if (all(is.na(ts_vals))) next
+                
+                ts_clean <- ts_vals
+                na_idx <- is.na(ts_clean)
+                if (all(na_idx)) next
+                ts_clean[na_idx] <- mean(ts_clean[!na_idx], na.rm = TRUE)
+                
+                if (length(ts_clean) >= window) {
+                  smoothed <- signal::sgolayfilt(ts_clean, p = 3, n = window)
+                  smoothed[na_idx] <- NA
+                  df[[col_name]] <- smoothed
+                }
+              }
+            }
+          } else {
+            # Smooth raw time series per band
+            for (band in input$bands) {
+              if (!band %in% names(df)) next
+              ts_vals <- df[[band]]
+              if (all(is.na(ts_vals))) next
+              
+              ts_clean <- ts_vals
+              na_idx <- is.na(ts_clean)
+              if (all(na_idx)) next
+              ts_clean[na_idx] <- mean(ts_clean[!na_idx], na.rm = TRUE)
+              
+              if (length(ts_clean) >= window) {
+                smoothed <- signal::sgolayfilt(ts_clean, p = 3, n = window)
+                smoothed[na_idx] <- NA
+                df[[band]] <- smoothed
+              }
+            }
+          }
+        }
+
+        # Clip valores para o intervalo [-1, 1]
+        df <- clip_to_unit_range(df, input$bands, summarised = input$summariseGeometry)
+
+        # Create plot
+        if (input$summariseGeometry) {
+          # Create summary plot using the helper function
+          p <- createSummaryPlot(df, input$bands[1])
+        } else {
           # Create plot using direct column references
           p <- plot_ly(data = df, x = ~date) %>%
             add_trace(

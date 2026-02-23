@@ -1,3 +1,7 @@
+# GDAL: evita erro de certificado SSL no Windows (CERT_TRUST_IS_UNTRUSTED_ROOT)
+# ao acessar rasters remotos via /vsicurl/ (data.inpe.br)
+Sys.setenv(GDAL_HTTP_UNSAFESSL = "YES")
+
 library(shiny)
 library(plotly)
 library(leaflet)
@@ -18,6 +22,7 @@ library(leafem)
 library(raster)
 library(purrr)  # Adicionada esta linha
 library(BBMQuant)
+library(signal)
 
 # Source modules
 source("wtss/wtss_client.R")
@@ -57,9 +62,29 @@ ui <- fluidPage(
         margin-left: 330px;
         padding: 0;
       }
-      /* Modais de resultados mais largos em todos os modulos */
-      .modal-dialog { max-width: 90%; width: 90%; max-height: 90%; height: 90%; }
-      .modal-lg { max-width: 90%; width: 90%; max-height: 90%; height: 90%; }
+      /* Modal de início: tamanho reduzido */
+      .modal-dialog.modal-sm { 
+        max-width: 420px; 
+        width: 90%; 
+        margin: 5vh auto;
+      }
+      /* Modais de resultados: grandes, centralizados, altura conforme conteúdo */
+      .modal-dialog { 
+        max-width: 90%; 
+        width: 90%; 
+        margin: 5vh auto;
+      }
+      .modal-lg { 
+        max-width: 92%; 
+        width: 92%; 
+        margin: 5vh auto;
+      }
+      .modal-body {
+        max-height: none;
+      }
+      .modal-content {
+        height: auto;
+      }
     "))
   ),
   div(class = "sidebar",

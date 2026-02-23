@@ -14,6 +14,24 @@ default_collection <- if ("S2-16D-2" %in% available_collections) {
   if (length(idx) > 0) available_collections[idx[1]] else available_collections[1]
 }
 
+# INPE BDC S2-16D-2: escala 0.0001, NoData -9999, reflectância 0-10000 -> 0-1
+# https://brazil-data-cube.github.io/products/cube-collections/S2-16D-2.html
+BDC_S2_SCALE <- 0.0001
+BDC_S2_NODATA <- -9999
+
+# Aplica tratamento INPE BDC para bandas de reflectância (RGB): escala, nodata, clip 0-1, leve clareamento
+BDC_S2_BRIGHTEN <- 1.5  # fator para clarear um pouco a imagem (1 = sem alteração)
+
+apply_bdc_s2_reflectance <- function(r) {
+  vals <- terra::values(r)
+  vals[vals <= BDC_S2_NODATA] <- NA
+  vals <- vals * BDC_S2_SCALE
+  vals <- vals * BDC_S2_BRIGHTEN
+  vals <- pmin(pmax(vals, 0), 1)
+  terra::values(r) <- vals
+  r
+}
+
 # Image Viewer Module UI
 imageViewerUI <- function(id) {
   ns <- NS(id)
@@ -90,8 +108,8 @@ imageViewerServer <- function(id, leaflet_map) {
         }
       }
       
-      # Default band: NDVI for single band; B04, B03, B02 for true color (Sentinel-2)
-      default_single <- if ("NDVI" %in% band_names) "NDVI" else band_names[1]
+      # Default band: EVI for single band; B04, B03, B02 for true color (Sentinel-2)
+      default_single <- if ("EVI" %in% band_names) "EVI" else band_names[1]
       default_red <- if ("B04" %in% band_names) "B04" else band_names[1]
       default_green <- if ("B03" %in% band_names) "B03" else band_names[min(2, length(band_names))]
       default_blue <- if ("B02" %in% band_names) "B02" else band_names[min(3, length(band_names))]
@@ -167,14 +185,21 @@ imageViewerServer <- function(id, leaflet_map) {
       })
     })
     
-    # Asset selector UI
+    # Asset selector UI (data + percentual de nuvens)
     output$assetSelector <- renderUI({
       req(rv$availableAssets)
       
       if (length(rv$availableAssets$features) > 0) {
         choices <- sapply(rv$availableAssets$features, function(x) {
-          format(as.POSIXct(x$properties$datetime), "%Y-%m-%d %H:%M:%S")
+          dt <- format(as.POSIXct(x$properties$datetime), "%Y-%m-%d")
+          cc <- x$properties$`eo:cloud_cover`
+          if (!is.null(cc) && !is.na(cc)) {
+            paste0(dt, " (", round(cc, 1), "% nuvens)")
+          } else {
+            paste0(dt, " (-)")
+          }
         })
+        names(choices) <- NULL
         
         selectInput(ns("selectedAsset"), "Select Asset by Date",
                    choices = choices,
@@ -212,7 +237,16 @@ imageViewerServer <- function(id, leaflet_map) {
       log_info("Loading asset to map")
       
       selected_feature <- Filter(
-        function(x) format(as.POSIXct(x$properties$datetime), "%Y-%m-%d %H:%M:%S") == input$selectedAsset,
+        function(x) {
+          dt <- format(as.POSIXct(x$properties$datetime), "%Y-%m-%d")
+          cc <- x$properties$`eo:cloud_cover`
+          label <- if (!is.null(cc) && !is.na(cc)) {
+            paste0(dt, " (", round(cc, 1), "% nuvens)")
+          } else {
+            paste0(dt, " (-)")
+          }
+          label == input$selectedAsset
+        },
         rv$availableAssets$features
       )[[1]]
       
@@ -346,23 +380,27 @@ loadRGBComposite <- function(input, asset_urls, asset_date, map_bbox, rv, map) {
     if (!is.na(terra::crs(rast)) && terra::crs(rast) != "EPSG:4326") {
       map_bbox_transformed <- terra::project(map_bbox, terra::crs(rast))
       rast_cropped <- terra::crop(rast, map_bbox_transformed)
-      rgb_rasts[[i]] <- terra::project(rast_cropped, "EPSG:4326")
+      rast <- terra::project(rast_cropped, "EPSG:4326")
     } else {
-      rgb_rasts[[i]] <- terra::crop(rast, map_bbox)
+      rast <- terra::crop(rast, map_bbox)
     }
+    
+    # Tratamento INPE BDC S2-16D-2: escala 0.0001, nodata -9999, clip 0-1
+    if (identical(input$collection, "S2-16D-2")) {
+      rast <- apply_bdc_s2_reflectance(rast)
+    }
+    rgb_rasts[[i]] <- rast
   }
   
-  # Get values for each band
   r <- rgb_rasts[[1]]
   g <- rgb_rasts[[2]]
   b <- rgb_rasts[[3]]
 
-  # Stack RGB bands into a single raster
   rgb_raster <- c(r, g, b)
-
-  rgb_raster <- brick(rgb_raster) # Convert to RasterBrick for leaflet compatibility
+  rgb_raster <- brick(rgb_raster)
   
-  map %>%
+    # Domínio 0-1 para reflectância já escalada (INPE BDC)
+    map %>%
     addRasterRGB(
       rgb_raster,
       r = 1,
@@ -370,7 +408,9 @@ loadRGBComposite <- function(input, asset_urls, asset_date, map_bbox, rv, map) {
       b = 3,
       layerId = rgb_layer_name,
       group = rgb_layer_name,
-      opacity = 0.9
+      opacity = 0.9,
+      quantiles = NULL,
+      domain = c(0, 1)
     ) %>%
     showGroup(rgb_layer_name)
 }

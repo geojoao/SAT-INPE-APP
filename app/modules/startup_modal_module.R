@@ -6,7 +6,7 @@ startupModalUI <- function(id) {
         title = "Welcome to SAT - Sistema de Analise de Terras",
         easyClose = TRUE,
         footer = NULL,
-        size = "m",
+        size = "s",
         div(
             p("Welcome to SAT!"),
             p("This application allows the visualization and analysis of geospatial time series data."),

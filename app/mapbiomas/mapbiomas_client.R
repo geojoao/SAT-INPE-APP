@@ -586,7 +586,8 @@ MapBiomasAPIClient <- R6::R6Class(
     # E um de: territory_id OU geometry (WKT, GeoJSON ou objeto sf)
     # Limite: geometria customizada deve ter area < 1.000.000 ha
     get_area_statistics = function(region, subtheme_key, legend_key, pixel_value,
-                                   year, territory_id = NULL, geometry = NULL) {
+                                   year = NULL, territory_id = NULL, geometry = NULL,
+                                   filters = NULL) {
       if (is.null(territory_id) && is.null(geometry)) {
         stop("Forneca territory_id ou geometry (WKT/GeoJSON)")
       }
@@ -597,16 +598,22 @@ MapBiomasAPIClient <- R6::R6Class(
       pixel_part <- paste(paste0("pixelValue=", as.integer(pixel_value)), collapse = "&")
       q_str <- paste0(
         "subthemeKey=", URLencode(subtheme_key),
-        "&legendKey=", URLencode(legend_key),
-        "&year=", year,
-        "&", pixel_part
+        "&legendKey=", URLencode(legend_key)
       )
+      if (!is.null(year)) {
+        q_str <- paste0(q_str, "&year=", year)
+      }
+      q_str <- paste0(q_str, "&", pixel_part)
       if (!is.null(territory_id)) {
         q_str <- paste0(q_str, "&territoryId=", URLencode(territory_id))
       } else {
         coords <- geometry_to_api_coords(geometry)
         geom_json <- jsonlite::toJSON(coords, auto_unbox = TRUE)
         q_str <- paste0(q_str, "&geometry=", URLencode(geom_json, reserved = TRUE))
+      }
+      if (!is.null(filters)) {
+        filters_json <- jsonlite::toJSON(filters, auto_unbox = TRUE)
+        q_str <- paste0(q_str, "&filters=", URLencode(filters_json, reserved = TRUE))
       }
       full_url <- paste0(url, "?", q_str)
       log_request_details("GET", full_url)

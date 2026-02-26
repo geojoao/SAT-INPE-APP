@@ -45,7 +45,7 @@ createSummaryPlot <- function(data, band_name) {
   lower_vals <- as.numeric(data[[cols$lower]])
   upper_vals <- as.numeric(data[[cols$upper]])
   
-  # Plot com área preenchida: ribbon entre lower e upper, linha da média
+  # Plot com rea preenchida: ribbon entre lower e upper, linha da mdia
   p <- plotly::plot_ly(data, x = ~date)
   
   # Trace 1: limite inferior (base para o fill)
@@ -57,7 +57,7 @@ createSummaryPlot <- function(data, band_name) {
     line = list(width = 0, color = "rgba(0,0,0,0)"),
     showlegend = FALSE
   )
-  # Trace 2: limite superior com fill até o trace anterior (ribbon)
+  # Trace 2: limite superior com fill at o trace anterior (ribbon)
   p <- plotly::add_trace(p,
     x = data$date,
     y = upper_vals,
@@ -69,7 +69,7 @@ createSummaryPlot <- function(data, band_name) {
     name = paste0(cols$lower_label, "-", cols$upper_label)
   )
   
-  # Linha da média
+  # Linha da mdia
   p <- plotly::add_trace(p,
     x = data$date,
     y = mean_vals,

@@ -62,13 +62,13 @@ ui <- fluidPage(
         margin-left: 330px;
         padding: 0;
       }
-      /* Modal de início: tamanho reduzido */
+      /* Modal de incio: tamanho reduzido */
       .modal-dialog.modal-sm { 
         max-width: 420px; 
         width: 90%; 
         margin: 5vh auto;
       }
-      /* Modais de resultados: grandes, centralizados, altura conforme conteúdo */
+      /* Modais de resultados: grandes, centralizados, altura conforme contedo */
       .modal-dialog { 
         max-width: 90%; 
         width: 90%; 

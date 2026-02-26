@@ -14,13 +14,13 @@ default_collection <- if ("S2-16D-2" %in% available_collections) {
   if (length(idx) > 0) available_collections[idx[1]] else available_collections[1]
 }
 
-# INPE BDC S2-16D-2: escala 0.0001, NoData -9999, reflectância 0-10000 -> 0-1
+# INPE BDC S2-16D-2: escala 0.0001, NoData -9999, reflectncia 0-10000 -> 0-1
 # https://brazil-data-cube.github.io/products/cube-collections/S2-16D-2.html
 BDC_S2_SCALE <- 0.0001
 BDC_S2_NODATA <- -9999
 
-# Aplica tratamento INPE BDC para bandas de reflectância (RGB): escala, nodata, clip 0-1, leve clareamento
-BDC_S2_BRIGHTEN <- 1.5  # fator para clarear um pouco a imagem (1 = sem alteração)
+# Aplica tratamento INPE BDC para bandas de reflectncia (RGB): escala, nodata, clip 0-1, leve clareamento
+BDC_S2_BRIGHTEN <- 1.5  # fator para clarear um pouco a imagem (1 = sem alterao)
 
 apply_bdc_s2_reflectance <- function(r) {
   vals <- terra::values(r)
@@ -399,7 +399,7 @@ loadRGBComposite <- function(input, asset_urls, asset_date, map_bbox, rv, map) {
   rgb_raster <- c(r, g, b)
   rgb_raster <- brick(rgb_raster)
   
-    # Domínio 0-1 para reflectância já escalada (INPE BDC)
+    # Domnio 0-1 para reflectncia j escalada (INPE BDC)
     map %>%
     addRasterRGB(
       rgb_raster,

@@ -584,10 +584,12 @@ MapBiomasAPIClient <- R6::R6Class(
     # GET /{region}/statistics/area - Get area statistics (distribuicao de area por classes)
     # Parametros: subthemeKey, legendKey, pixelValue (array), year
     # E um de: territory_id OU geometry (WKT, GeoJSON ou objeto sf)
+    # filters: ex. list(depth = "000_010") para solos
+    # spatialMethod: ex. "union" para estatisticas de solos
     # Limite: geometria customizada deve ter area < 1.000.000 ha
     get_area_statistics = function(region, subtheme_key, legend_key, pixel_value,
                                    year = NULL, territory_id = NULL, geometry = NULL,
-                                   filters = NULL) {
+                                   filters = NULL, spatial_method = NULL) {
       if (is.null(territory_id) && is.null(geometry)) {
         stop("Forneca territory_id ou geometry (WKT/GeoJSON)")
       }
@@ -614,6 +616,9 @@ MapBiomasAPIClient <- R6::R6Class(
       if (!is.null(filters)) {
         filters_json <- jsonlite::toJSON(filters, auto_unbox = TRUE)
         q_str <- paste0(q_str, "&filters=", URLencode(filters_json, reserved = TRUE))
+      }
+      if (!is.null(spatial_method)) {
+        q_str <- paste0(q_str, "&spatialMethod=", URLencode(spatial_method, reserved = TRUE))
       }
       full_url <- paste0(url, "?", q_str)
       log_request_details("GET", full_url)

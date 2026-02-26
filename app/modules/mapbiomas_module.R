@@ -55,6 +55,45 @@ mapbiomasAgricultureUI <- function(id) {
   )
 }
 
+# Constantes para submódulo Solos (MapBiomas API)
+SOIL_FRACTION_OPTS <- list(
+  Sand = list(subtheme = "soil_sand_fraction", legend = "soil_sand_fraction_mapbiomas_sand"),
+  Silt = list(subtheme = "soil_silt_fraction", legend = "soil_silt_fraction_mapbiomas_silt"),
+  Clay = list(subtheme = "soil_clay_fraction", legend = "soil_clay_fraction_mapbiomas_clay")
+)
+SOIL_TEXTURE_OPTS <- list(
+  "Textural group" = list(subtheme = "soil_textural_group", legend = "soil_textural_group_mapbiomas_textural_group"),
+  "Textural subgroup" = list(subtheme = "soil_textural_subgroup", legend = "soil_textural_subgroup_mapbiomas_textural_subgroup"),
+  "Textural class" = list(subtheme = "soil_textural_class", legend = "soil_textural_class_mapbiomas_textural_class")
+)
+
+# UI do submodulo MapBiomas - Solos
+mapbiomasSoilUI <- function(id) {
+  ns <- NS(id)
+  div(
+    uiOutput(ns("soil_file_ui")),
+    tags$h5("Métricas de perfis de solo (frações)", style = "margin-top: 12px;"),
+    selectInput(ns("soilFraction"), "Componente",
+                choices = c("Sand", "Silt", "Clay"),
+                selected = "Clay"),
+    selectInput(ns("soilProfileDepth"), "Profundidade (cm)",
+                choices = c("0-10" = "000_010", "10-20" = "010_020", "20-30" = "020_030",
+                            "30-40" = "030_040", "40-50" = "040_050", "50-60" = "050_060",
+                            "60-70" = "060_070", "70-80" = "070_080", "80-90" = "080_090"),
+                selected = "000_010"),
+    tags$hr(),
+    tags$h5("Textura"),
+    selectInput(ns("soilTextureType"), "Tipo de textura",
+                choices = c("Textural group", "Textural subgroup", "Textural class"),
+                selected = "Textural group"),
+    selectInput(ns("soilTextureDepth"), "Profundidade (cm)",
+                choices = c("0-10" = "000_010", "0-20" = "000_020", "0-30" = "000_030"),
+                selected = "000_010"),
+    actionButton(ns("getSoilMetrics"), "Obter métricas de solo",
+                 class = "btn-primary btn-block", style = "margin-top: 16px;")
+  )
+}
+
 # UI do modulo MapBiomas (container de submodulos)
 mapbiomasUI <- function(id) {
   ns <- NS(id)
@@ -62,7 +101,8 @@ mapbiomasUI <- function(id) {
     hr(),
     tabsetPanel(
       id = ns("mapbiomasTabs"),
-      tabPanel("Agricultura", mapbiomasAgricultureUI(ns("agriculture")))
+      tabPanel("Agricultura", mapbiomasAgricultureUI(ns("agriculture"))),
+      tabPanel("Solos", mapbiomasSoilUI(ns("soil")))
     )
   )
 }
@@ -423,9 +463,191 @@ mapbiomasAgricultureServer <- function(id, leaflet_map) {
   })
 }
 
+# Server do submodulo MapBiomas - Solos
+mapbiomasSoilServer <- function(id, leaflet_map) {
+  moduleServer(id, function(input, output, session) {
+    ns <- session$ns
+    mainInput <- leaflet_map$mapInput
+    map <- leaflet_map$proxy
+
+    rv_soil <- reactiveValues(
+      userGeometry = NULL,
+      profilePlot = NULL,
+      texturePlot = NULL
+    )
+
+    output$soil_file_ui <- renderUI({
+      fileInput(ns("soilKmlUpload"), "Upload KML ou desenhe no mapa", accept = ".kml")
+    })
+
+    observeEvent(mainInput$map_draw_new_feature, {
+      rv_soil$userGeometry <- mainInput$map_draw_new_feature
+    })
+
+    observeEvent(mainInput$map_draw_deleted_features, {
+      rv_soil$userGeometry <- NULL
+      map %>% clearShapes()
+      output$soil_file_ui <- renderUI({
+        fileInput(ns("soilKmlUpload"), "Upload KML ou desenhe no mapa", accept = ".kml")
+      })
+    })
+
+    observeEvent(input$soilKmlUpload, {
+      req(input$soilKmlUpload$datapath)
+      kml_path <- input$soilKmlUpload$datapath
+      geom_sf <- tryCatch({
+        st_read(kml_path) %>% st_zm() %>% st_cast("MULTIPOLYGON")
+      }, error = function(e) {
+        showNotification("Erro ao ler arquivo KML.", type = "error")
+        return(NULL)
+      })
+      if (is.null(geom_sf)) return
+      if (nrow(geom_sf) > 1) {
+        geom_sf <- st_sf(geometry = st_union(geom_sf$geometry))
+      }
+      geom_sf <- st_transform(geom_sf, 4326)
+      map %>%
+        clearShapes() %>%
+        addPolygons(
+          data = geom_sf,
+          group = "Features",
+          fillColor = "green",
+          fillOpacity = 0.2,
+          color = "green",
+          weight = 2
+        ) %>%
+        flyToBounds(
+          lng1 = st_bbox(geom_sf)$xmin[[1]],
+          lat1 = st_bbox(geom_sf)$ymin[[1]],
+          lng2 = st_bbox(geom_sf)$xmax[[1]],
+          lat2 = st_bbox(geom_sf)$ymax[[1]]
+        ) %>%
+        showGroup("Features")
+      rv_soil$userGeometry <- list(source = "sf", geometry = geom_sf)
+      showNotification("KML carregado. Use os botoes para obter area.", type = "message")
+    })
+
+    # Obter ambas as métricas (perfis + textura) e exibir donuts lado a lado
+    observeEvent(input$getSoilMetrics, {
+      req(rv_soil$userGeometry)
+      geom <- if (!is.null(rv_soil$userGeometry$source) && rv_soil$userGeometry$source == "sf") {
+        rv_soil$userGeometry$geometry
+      } else {
+        leaflet_feature_to_mapbiomas_geom(rv_soil$userGeometry)
+      }
+      if (is.null(geom)) {
+        showNotification("Geometria invalida. Desenhe um poligono no mapa.", type = "error")
+        return()
+      }
+      showModal(modalDialog("Carregando métricas de solo...", footer = NULL, size = "s"))
+      tryCatch({
+        # 1) Perfis (fração)
+        frac_opt <- SOIL_FRACTION_OPTS[[input$soilFraction]]
+        depth_profile <- input$soilProfileDepth
+        legend_frac <- mapbiomas_client$get_legend_leaf_items("brazil", frac_opt$legend)
+        if (nrow(legend_frac) == 0) stop("Legenda de perfis de solo nao disponivel.")
+        result_frac <- mapbiomas_client$get_area_statistics(
+          region = "brazil",
+          subtheme_key = frac_opt$subtheme,
+          legend_key = frac_opt$legend,
+          pixel_value = legend_frac$pixelValue,
+          year = NULL,
+          geometry = geom,
+          filters = list(depth = depth_profile),
+          spatial_method = "union"
+        )
+        df_frac <- parse_area_statistics_to_df(result_frac)
+        df_frac <- merge(df_frac, legend_frac[, c("pixelValue", "name", "color")], by = "pixelValue", all.x = TRUE)
+        df_frac$classe <- df_frac$name
+        df_frac$classe[is.na(df_frac$classe)] <- paste0("Classe ", df_frac$pixelValue[is.na(df_frac$classe)])
+        p_frac <- plot_ly(df_frac, labels = ~classe, values = ~area_ha, type = "pie", hole = 0.5,
+                          marker = list(colors = df_frac$color),
+                          textinfo = "label+percent",
+                          textposition = "outside",
+                          hoverinfo = "label+value+percent") %>%
+          layout(
+            title = list(
+              text = sprintf("%s - Prof. %s cm", input$soilFraction, gsub("_", "-", depth_profile)),
+              font = list(size = 14)
+            ),
+            showlegend = TRUE,
+            legend = list(orientation = "h", x = 0.5, xanchor = "center", y = -0.15),
+            margin = list(t = 50, b = 80),
+            paper_bgcolor = "transparent",
+            plot_bgcolor = "transparent"
+          )
+
+        # 2) Textura
+        tex_opt <- SOIL_TEXTURE_OPTS[[input$soilTextureType]]
+        depth_tex <- input$soilTextureDepth
+        legend_tex <- mapbiomas_client$get_legend_leaf_items("brazil", tex_opt$legend)
+        if (nrow(legend_tex) == 0) stop("Legenda de textura nao disponivel.")
+        result_tex <- mapbiomas_client$get_area_statistics(
+          region = "brazil",
+          subtheme_key = tex_opt$subtheme,
+          legend_key = tex_opt$legend,
+          pixel_value = legend_tex$pixelValue,
+          year = NULL,
+          geometry = geom,
+          filters = list(depth = depth_tex),
+          spatial_method = "union"
+        )
+        df_tex <- parse_area_statistics_to_df(result_tex)
+        df_tex <- merge(df_tex, legend_tex[, c("pixelValue", "name", "color")], by = "pixelValue", all.x = TRUE)
+        df_tex$classe <- df_tex$name
+        df_tex$classe[is.na(df_tex$classe)] <- paste0("Classe ", df_tex$pixelValue[is.na(df_tex$classe)])
+        p_tex <- plot_ly(df_tex, labels = ~classe, values = ~area_ha, type = "pie", hole = 0.5,
+                         marker = list(colors = df_tex$color),
+                         textinfo = "label+percent",
+                         textposition = "outside",
+                         hoverinfo = "label+value+percent") %>%
+          layout(
+            title = list(
+              text = sprintf("%s - Prof. %s cm", input$soilTextureType, gsub("_", "-", depth_tex)),
+              font = list(size = 14)
+            ),
+            showlegend = TRUE,
+            legend = list(orientation = "h", x = 0.5, xanchor = "center", y = -0.15),
+            margin = list(t = 50, b = 80),
+            paper_bgcolor = "transparent",
+            plot_bgcolor = "transparent"
+          )
+
+        rv_soil$profilePlot <- p_frac
+        rv_soil$texturePlot <- p_tex
+        removeModal()
+        showModal(modalDialog(
+          title = "Métricas de solo - Distribuição de área",
+          fluidRow(
+            column(6, plotlyOutput(ns("soilProfilePlot"), height = "420px")),
+            column(6, plotlyOutput(ns("soilTexturePlot"), height = "420px"))
+          ),
+          size = "l",
+          easyClose = TRUE,
+          footer = modalButton("Fechar")
+        ))
+      }, error = function(e) {
+        removeModal()
+        showNotification(paste("Erro ao obter métricas de solo:", e$message), type = "error")
+      })
+    })
+
+    output$soilProfilePlot <- renderPlotly({
+      req(rv_soil$profilePlot)
+      rv_soil$profilePlot
+    })
+
+    output$soilTexturePlot <- renderPlotly({
+      req(rv_soil$texturePlot)
+      rv_soil$texturePlot
+    })
+  })
+}
+
 # Server do modulo MapBiomas (container)
 mapbiomasServer <- function(id, leaflet_map) {
   moduleServer(id, function(input, output, session) {
     mapbiomasAgricultureServer("agriculture", leaflet_map)
+    mapbiomasSoilServer("soil", leaflet_map)
   })
 }

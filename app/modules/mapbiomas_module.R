@@ -46,10 +46,10 @@ mapbiomasAgricultureUI <- function(id) {
   ns <- NS(id)
   div(
     uiOutput(ns("file_ui")),
-    sliderInput(ns("yearRange"), "Periodo (anos)",
+    sliderInput(ns("yearRange"), "Period (years)",
                 min = 1985, max = 2024, value = c(2015, 2024),
                 step = 1, sep = ""),
-    actionButton(ns("getAreaDistribution"), "Obter Distribuicao de Area",
+    actionButton(ns("getAreaDistribution"), "Get Area Distribution",
                  class = "btn-primary btn-block",
                  style = "margin-top: 20px;")
   )
@@ -67,29 +67,79 @@ SOIL_TEXTURE_OPTS <- list(
   "Textural class" = list(subtheme = "soil_textural_class", legend = "soil_textural_class_mapbiomas_textural_class")
 )
 
+# Slope categories: MapBiomas uses EMBRAPA classification (slope %)
+SLOPE_PERCENT_RANGES <- c(
+  "1" = "0-3%",
+  "2" = "3-8%",
+  "3" = "8-20%",
+  "4" = "20-45%",
+  "5" = "45%+"
+)
+
+# Environmental Analysis config (Hipsometry, Slope, Aspect)
+ENV_ANALYSIS_OPTS <- list(
+  Hipsometry = list(
+    subtheme = "environmental_analisys_hipsometry",
+    legend = "environmental_analisys_hipsometry_mapbiomas_hipsometry",
+    pixel_values = 1:8
+  ),
+  Slope = list(
+    subtheme = "environmental_analisys_slope",
+    legend = "environmental_analisys_slope_mapbiomas_slope",
+    pixel_values = 1:5
+  ),
+  Aspect = list(
+    subtheme = "environmental_analisys_aspect",
+    legend = "environmental_analisys_aspect_mapbiomas_aspect",
+    pixel_values = 1:10
+  )
+)
+
+# UI do submodulo MapBiomas - Environmental Analysis
+mapbiomasEnvAnalysisUI <- function(id) {
+  ns <- NS(id)
+  div(
+    uiOutput(ns("env_file_ui")),
+    actionButton(ns("getEnvMetrics"), "Get Hipsometry, Slope and Aspect metrics",
+                 class = "btn-primary btn-block",
+                 style = "margin-top: 20px;")
+  )
+}
+
+# UI do submodulo MapBiomas - Atmosphere (precipitacao)
+mapbiomasAtmosphereUI <- function(id) {
+  ns <- NS(id)
+  div(
+    uiOutput(ns("atmosphere_file_ui")),
+    actionButton(ns("getPrecipitationPlots"), "Get Precipitation and Temperature Plots",
+                 class = "btn-primary btn-block",
+                 style = "margin-top: 20px;")
+  )
+}
+
 # UI do submodulo MapBiomas - Solos
 mapbiomasSoilUI <- function(id) {
   ns <- NS(id)
   div(
     uiOutput(ns("soil_file_ui")),
-    tags$h5("Métricas de perfis de solo (frações)", style = "margin-top: 12px;"),
-    selectInput(ns("soilFraction"), "Componente",
+    tags$h5("Soil profile metrics (fractions)", style = "margin-top: 12px;"),
+    selectInput(ns("soilFraction"), "Component",
                 choices = c("Sand", "Silt", "Clay"),
                 selected = "Clay"),
-    selectInput(ns("soilProfileDepth"), "Profundidade (cm)",
+    selectInput(ns("soilProfileDepth"), "Depth (cm)",
                 choices = c("0-10" = "000_010", "10-20" = "010_020", "20-30" = "020_030",
                             "30-40" = "030_040", "40-50" = "040_050", "50-60" = "050_060",
                             "60-70" = "060_070", "70-80" = "070_080", "80-90" = "080_090"),
                 selected = "000_010"),
     tags$hr(),
-    tags$h5("Textura"),
-    selectInput(ns("soilTextureType"), "Tipo de textura",
+    tags$h5("Texture"),
+    selectInput(ns("soilTextureType"), "Texture type",
                 choices = c("Textural group", "Textural subgroup", "Textural class"),
                 selected = "Textural group"),
-    selectInput(ns("soilTextureDepth"), "Profundidade (cm)",
+    selectInput(ns("soilTextureDepth"), "Depth (cm)",
                 choices = c("0-10" = "000_010", "0-20" = "000_020", "0-30" = "000_030"),
                 selected = "000_010"),
-    actionButton(ns("getSoilMetrics"), "Obter métricas de solo",
+    actionButton(ns("getSoilMetrics"), "Get soil metrics",
                  class = "btn-primary btn-block", style = "margin-top: 16px;")
   )
 }
@@ -101,8 +151,10 @@ mapbiomasUI <- function(id) {
     hr(),
     tabsetPanel(
       id = ns("mapbiomasTabs"),
-      tabPanel("Agricultura", mapbiomasAgricultureUI(ns("agriculture"))),
-      tabPanel("Solos", mapbiomasSoilUI(ns("soil")))
+      tabPanel("Agriculture", mapbiomasAgricultureUI(ns("agriculture"))),
+      tabPanel("Environmental Analysis", mapbiomasEnvAnalysisUI(ns("envAnalysis"))),
+      tabPanel("Soil", mapbiomasSoilUI(ns("soil"))),
+      tabPanel("Atmosphere", mapbiomasAtmosphereUI(ns("atmosphere")))
     )
   )
 }
@@ -126,7 +178,7 @@ mapbiomasAgricultureServer <- function(id, leaflet_map) {
     )
 
     output$file_ui <- renderUI({
-      fileInput(ns("kmlUpload"), "Upload KML ou desenhe no mapa", accept = ".kml")
+      fileInput(ns("kmlUpload"), "Upload KML or draw on map", accept = ".kml")
     })
 
     observeEvent(mainInput$map_draw_new_feature, {
@@ -137,7 +189,7 @@ mapbiomasAgricultureServer <- function(id, leaflet_map) {
       rv$userGeometry <- NULL
       map %>% clearShapes()
       output$file_ui <- renderUI({
-        fileInput(ns("kmlUpload"), "Upload KML ou desenhe no mapa", accept = ".kml")
+        fileInput(ns("kmlUpload"), "Upload KML or draw on map", accept = ".kml")
       })
     })
 
@@ -147,7 +199,7 @@ mapbiomasAgricultureServer <- function(id, leaflet_map) {
       geom_sf <- tryCatch({
         st_read(kml_path) %>% st_zm() %>% st_cast("MULTIPOLYGON")
       }, error = function(e) {
-        showNotification("Erro ao ler arquivo KML.", type = "error")
+        showNotification("Error reading KML file.", type = "error")
         return(NULL)
       })
       if (is.null(geom_sf)) return
@@ -175,7 +227,7 @@ mapbiomasAgricultureServer <- function(id, leaflet_map) {
         showGroup("Features")
 
       rv$userGeometry <- list(source = "sf", geometry = geom_sf)
-      showNotification("KML carregado. Clique em 'Obter Distribuicao de Area'.", type = "message")
+      showNotification("KML loaded. Click 'Get Area Distribution'.", type = "message")
     })
 
     observeEvent(input$getAreaDistribution, {
@@ -186,7 +238,7 @@ mapbiomasAgricultureServer <- function(id, leaflet_map) {
         leaflet_feature_to_mapbiomas_geom(rv$userGeometry)
       }
       if (is.null(geom)) {
-        showNotification("Geometria invAlida. Desenhe um poligono no mapa.", type = "error")
+        showNotification("Invalid geometry. Draw a polygon on the map.", type = "error")
         return()
       }
 
@@ -194,13 +246,13 @@ mapbiomasAgricultureServer <- function(id, leaflet_map) {
         tryCatch({
           rv$legendLeafItems <- mapbiomas_client$get_legend_leaf_items("brazil", "default")
         }, error = function(e) {
-          showNotification(paste("Erro ao obter legenda MapBiomas:", e$message), type = "error")
+          showNotification(paste("Error fetching MapBiomas legend:", e$message), type = "error")
           return()
         })
       }
       legend_df <- rv$legendLeafItems
       if (nrow(legend_df) == 0) {
-        showNotification("Legenda MapBiomas vazia.", type = "error")
+        showNotification("MapBiomas legend is empty.", type = "error")
         return()
       }
 
@@ -212,7 +264,7 @@ mapbiomasAgricultureServer <- function(id, leaflet_map) {
             "agriculture_agricultural_use_second_crop_mapbiomas_agricultural_use_second_crop"
           )
         }, error = function(e) {
-          showNotification(paste("Erro ao obter legenda de second crop (MapBiomas):", e$message), type = "error")
+          showNotification(paste("Error fetching second crop legend (MapBiomas):", e$message), type = "error")
           return()
         })
       }
@@ -226,7 +278,7 @@ mapbiomasAgricultureServer <- function(id, leaflet_map) {
             "agriculture_irrigation_systems_mapbiomas_irrigation_systems"
           )
         }, error = function(e) {
-          showNotification(paste("Erro ao obter legenda de irrigacao (MapBiomas):", e$message), type = "error")
+          showNotification(paste("Error fetching irrigation legend (MapBiomas):", e$message), type = "error")
           return()
         })
       }
@@ -236,8 +288,8 @@ mapbiomasAgricultureServer <- function(id, leaflet_map) {
       pixel_values <- legend_df$pixelValue
 
       showModal(modalDialog(
-        title = "Carregando dados MapBiomas...",
-        "Consultando API para cada ano. Aguarde...",
+        title = "Loading MapBiomas data...",
+        "Querying API for each year. Please wait...",
         footer = NULL,
         size = "s"
       ))
@@ -247,7 +299,7 @@ mapbiomasAgricultureServer <- function(id, leaflet_map) {
         second_all_data <- list()
         irrigation_all_data <- list()
         n_years <- length(years)
-        withProgress(message = "Consultando MapBiomas...", value = 0, {
+        withProgress(message = "Querying MapBiomas...", value = 0, {
           for (i in seq_along(years)) {
             setProgress(i / n_years, detail = sprintf("Ano %d/%d", years[i], years[n_years]))
 
@@ -300,14 +352,14 @@ mapbiomasAgricultureServer <- function(id, leaflet_map) {
 
         if (length(all_data) == 0) {
           removeModal()
-          showNotification("Nenhum dado retornado para o periodo.", type = "warning")
+          showNotification("No data returned for the period.", type = "warning")
           return()
         }
 
         df_all <- do.call(rbind, all_data)
         df_all <- merge(df_all, legend_df[, c("pixelValue", "name", "color")], by = "pixelValue", all.x = TRUE)
         df_all$classe <- df_all$name
-        df_all$classe[is.na(df_all$classe)] <- paste0("Classe ", df_all$pixelValue[is.na(df_all$classe)])
+        df_all$classe[is.na(df_all$classe)] <- paste0("Class ", df_all$pixelValue[is.na(df_all$classe)])
 
         classes_present <- unique(df_all$classe)
         colors_vec <- sapply(classes_present, function(cl) {
@@ -321,8 +373,8 @@ mapbiomasAgricultureServer <- function(id, leaflet_map) {
                          type = "bar", marker = list(line = list(color = "white", width = 0.5))) %>%
           layout(
             barmode = "stack",
-            title = "Distribuicao de Area por Classe de Cobertura (MapBiomas)",
-            xaxis = list(title = "Ano"),
+            title = "Area Distribution by Land Cover Class (MapBiomas)",
+            xaxis = list(title = "Year"),
             yaxis = list(title = "Area (hectares)"),
             legend = list(
               orientation = "v",
@@ -346,7 +398,7 @@ mapbiomasAgricultureServer <- function(id, leaflet_map) {
             all.x = TRUE
           )
           df_second_all$classe <- df_second_all$name
-          df_second_all$classe[is.na(df_second_all$classe)] <- paste0("Classe ", df_second_all$pixelValue[is.na(df_second_all$classe)])
+          df_second_all$classe[is.na(df_second_all$classe)] <- paste0("Class ", df_second_all$pixelValue[is.na(df_second_all$classe)])
 
           second_classes <- unique(df_second_all$classe)
           second_colors_vec <- sapply(second_classes, function(cl) {
@@ -362,8 +414,8 @@ mapbiomasAgricultureServer <- function(id, leaflet_map) {
                               marker = list(line = list(color = "white", width = 0.5))) %>%
             layout(
               barmode = "stack",
-              title = "Area de Safrinha (Second Crop) por Categoria",
-              xaxis = list(title = "Ano"),
+              title = "Second Crop Area by Category",
+              xaxis = list(title = "Year"),
               yaxis = list(title = "Area (hectares)"),
               legend = list(
                 orientation = "v",
@@ -390,7 +442,7 @@ mapbiomasAgricultureServer <- function(id, leaflet_map) {
             all.x = TRUE
           )
           df_irrig_all$classe <- df_irrig_all$name
-          df_irrig_all$classe[is.na(df_irrig_all$classe)] <- paste0("Classe ", df_irrig_all$pixelValue[is.na(df_irrig_all$classe)])
+          df_irrig_all$classe[is.na(df_irrig_all$classe)] <- paste0("Class ", df_irrig_all$pixelValue[is.na(df_irrig_all$classe)])
 
           irrig_classes <- unique(df_irrig_all$classe)
           irrig_colors_vec <- sapply(irrig_classes, function(cl) {
@@ -406,8 +458,8 @@ mapbiomasAgricultureServer <- function(id, leaflet_map) {
                              marker = list(line = list(color = "white", width = 0.5))) %>%
             layout(
               barmode = "stack",
-              title = "Area por Tipo de Irrigacao (MapBiomas)",
-              xaxis = list(title = "Ano"),
+              title = "Area by Irrigation Type (MapBiomas)",
+              xaxis = list(title = "Year"),
               yaxis = list(title = "Area (hectares)"),
               legend = list(
                 orientation = "v",
@@ -426,7 +478,7 @@ mapbiomasAgricultureServer <- function(id, leaflet_map) {
 
         removeModal()
         showModal(modalDialog(
-          title = "Series Temporais - MapBiomas",
+          title = "Time Series - MapBiomas",
           plotlyOutput(ns("areaPlot"), height = "400px"),
           tags$hr(),
           plotlyOutput(ns("secondCropPlot"), height = "400px"),
@@ -434,13 +486,13 @@ mapbiomasAgricultureServer <- function(id, leaflet_map) {
           plotlyOutput(ns("irrigationPlot"), height = "400px"),
           size = "l",
           easyClose = TRUE,
-          footer = modalButton("Fechar")
+          footer = modalButton("Close")
         ))
 
       }, error = function(e) {
         removeModal()
         showNotification(
-          paste("Erro ao obter dados MapBiomas:", e$message),
+          paste("Error fetching MapBiomas data:", e$message),
           type = "error"
         )
       })
@@ -477,7 +529,7 @@ mapbiomasSoilServer <- function(id, leaflet_map) {
     )
 
     output$soil_file_ui <- renderUI({
-      fileInput(ns("soilKmlUpload"), "Upload KML ou desenhe no mapa", accept = ".kml")
+      fileInput(ns("soilKmlUpload"), "Upload KML or draw on map", accept = ".kml")
     })
 
     observeEvent(mainInput$map_draw_new_feature, {
@@ -488,7 +540,7 @@ mapbiomasSoilServer <- function(id, leaflet_map) {
       rv_soil$userGeometry <- NULL
       map %>% clearShapes()
       output$soil_file_ui <- renderUI({
-        fileInput(ns("soilKmlUpload"), "Upload KML ou desenhe no mapa", accept = ".kml")
+        fileInput(ns("soilKmlUpload"), "Upload KML or draw on map", accept = ".kml")
       })
     })
 
@@ -498,7 +550,7 @@ mapbiomasSoilServer <- function(id, leaflet_map) {
       geom_sf <- tryCatch({
         st_read(kml_path) %>% st_zm() %>% st_cast("MULTIPOLYGON")
       }, error = function(e) {
-        showNotification("Erro ao ler arquivo KML.", type = "error")
+        showNotification("Error reading KML file.", type = "error")
         return(NULL)
       })
       if (is.null(geom_sf)) return
@@ -524,7 +576,7 @@ mapbiomasSoilServer <- function(id, leaflet_map) {
         ) %>%
         showGroup("Features")
       rv_soil$userGeometry <- list(source = "sf", geometry = geom_sf)
-      showNotification("KML carregado. Use os botoes para obter area.", type = "message")
+      showNotification("KML loaded. Use the buttons to get area metrics.", type = "message")
     })
 
     # Obter ambas as métricas (perfis + textura) e exibir donuts lado a lado
@@ -536,16 +588,16 @@ mapbiomasSoilServer <- function(id, leaflet_map) {
         leaflet_feature_to_mapbiomas_geom(rv_soil$userGeometry)
       }
       if (is.null(geom)) {
-        showNotification("Geometria invalida. Desenhe um poligono no mapa.", type = "error")
+        showNotification("Invalid geometry. Draw a polygon on the map.", type = "error")
         return()
       }
-      showModal(modalDialog("Carregando métricas de solo...", footer = NULL, size = "s"))
+      showModal(modalDialog("Loading soil metrics...", footer = NULL, size = "s"))
       tryCatch({
         # 1) Perfis (fração)
         frac_opt <- SOIL_FRACTION_OPTS[[input$soilFraction]]
         depth_profile <- input$soilProfileDepth
         legend_frac <- mapbiomas_client$get_legend_leaf_items("brazil", frac_opt$legend)
-        if (nrow(legend_frac) == 0) stop("Legenda de perfis de solo nao disponivel.")
+        if (nrow(legend_frac) == 0) stop("Soil profile legend not available.")
         result_frac <- mapbiomas_client$get_area_statistics(
           region = "brazil",
           subtheme_key = frac_opt$subtheme,
@@ -559,15 +611,15 @@ mapbiomasSoilServer <- function(id, leaflet_map) {
         df_frac <- parse_area_statistics_to_df(result_frac)
         df_frac <- merge(df_frac, legend_frac[, c("pixelValue", "name", "color")], by = "pixelValue", all.x = TRUE)
         df_frac$classe <- df_frac$name
-        df_frac$classe[is.na(df_frac$classe)] <- paste0("Classe ", df_frac$pixelValue[is.na(df_frac$classe)])
+        df_frac$classe[is.na(df_frac$classe)] <- paste0("Class ", df_frac$pixelValue[is.na(df_frac$classe)])
+        df_frac$area_ha <- round(df_frac$area_ha, 2)
         p_frac <- plot_ly(df_frac, labels = ~classe, values = ~area_ha, type = "pie", hole = 0.5,
                           marker = list(colors = df_frac$color),
-                          textinfo = "label+percent",
-                          textposition = "outside",
-                          hoverinfo = "label+value+percent") %>%
+                          textinfo = "none",
+                          hovertemplate = "%{label}<br>%{value:.2f} ha<br>%{percent:.2f}%<extra></extra>") %>%
           layout(
             title = list(
-              text = sprintf("%s - Prof. %s cm", input$soilFraction, gsub("_", "-", depth_profile)),
+              text = sprintf("%s - Depth %s cm", input$soilFraction, gsub("_", "-", depth_profile)),
               font = list(size = 14)
             ),
             showlegend = TRUE,
@@ -581,7 +633,7 @@ mapbiomasSoilServer <- function(id, leaflet_map) {
         tex_opt <- SOIL_TEXTURE_OPTS[[input$soilTextureType]]
         depth_tex <- input$soilTextureDepth
         legend_tex <- mapbiomas_client$get_legend_leaf_items("brazil", tex_opt$legend)
-        if (nrow(legend_tex) == 0) stop("Legenda de textura nao disponivel.")
+        if (nrow(legend_tex) == 0) stop("Texture legend not available.")
         result_tex <- mapbiomas_client$get_area_statistics(
           region = "brazil",
           subtheme_key = tex_opt$subtheme,
@@ -595,15 +647,15 @@ mapbiomasSoilServer <- function(id, leaflet_map) {
         df_tex <- parse_area_statistics_to_df(result_tex)
         df_tex <- merge(df_tex, legend_tex[, c("pixelValue", "name", "color")], by = "pixelValue", all.x = TRUE)
         df_tex$classe <- df_tex$name
-        df_tex$classe[is.na(df_tex$classe)] <- paste0("Classe ", df_tex$pixelValue[is.na(df_tex$classe)])
+        df_tex$classe[is.na(df_tex$classe)] <- paste0("Class ", df_tex$pixelValue[is.na(df_tex$classe)])
+        df_tex$area_ha <- round(df_tex$area_ha, 2)
         p_tex <- plot_ly(df_tex, labels = ~classe, values = ~area_ha, type = "pie", hole = 0.5,
                          marker = list(colors = df_tex$color),
-                         textinfo = "label+percent",
-                         textposition = "outside",
-                         hoverinfo = "label+value+percent") %>%
+                         textinfo = "none",
+                         hovertemplate = "%{label}<br>%{value:.2f} ha<br>%{percent:.2f}%<extra></extra>") %>%
           layout(
             title = list(
-              text = sprintf("%s - Prof. %s cm", input$soilTextureType, gsub("_", "-", depth_tex)),
+              text = sprintf("%s - Depth %s cm", input$soilTextureType, gsub("_", "-", depth_tex)),
               font = list(size = 14)
             ),
             showlegend = TRUE,
@@ -617,18 +669,18 @@ mapbiomasSoilServer <- function(id, leaflet_map) {
         rv_soil$texturePlot <- p_tex
         removeModal()
         showModal(modalDialog(
-          title = "Métricas de solo - Distribuição de área",
+          title = "Soil metrics - Area distribution",
           fluidRow(
             column(6, plotlyOutput(ns("soilProfilePlot"), height = "420px")),
             column(6, plotlyOutput(ns("soilTexturePlot"), height = "420px"))
           ),
           size = "l",
           easyClose = TRUE,
-          footer = modalButton("Fechar")
+          footer = modalButton("Close")
         ))
       }, error = function(e) {
         removeModal()
-        showNotification(paste("Erro ao obter métricas de solo:", e$message), type = "error")
+        showNotification(paste("Error fetching soil metrics:", e$message), type = "error")
       })
     })
 
@@ -644,10 +696,449 @@ mapbiomasSoilServer <- function(id, leaflet_map) {
   })
 }
 
+# Server do submodulo MapBiomas - Environmental Analysis
+mapbiomasEnvAnalysisServer <- function(id, leaflet_map) {
+  moduleServer(id, function(input, output, session) {
+    ns <- session$ns
+    mainInput <- leaflet_map$mapInput
+    map <- leaflet_map$proxy
+
+    rv_env <- reactiveValues(
+      userGeometry = NULL,
+      hipsometryPlot = NULL,
+      slopePlot = NULL,
+      aspectPlot = NULL
+    )
+
+    output$env_file_ui <- renderUI({
+      fileInput(ns("envKmlUpload"), "Upload KML or draw on map", accept = ".kml")
+    })
+
+    observeEvent(mainInput$map_draw_new_feature, {
+      rv_env$userGeometry <- mainInput$map_draw_new_feature
+    })
+
+    observeEvent(mainInput$map_draw_deleted_features, {
+      rv_env$userGeometry <- NULL
+      map %>% clearShapes()
+      output$env_file_ui <- renderUI({
+        fileInput(ns("envKmlUpload"), "Upload KML or draw on map", accept = ".kml")
+      })
+    })
+
+    observeEvent(input$envKmlUpload, {
+      req(input$envKmlUpload$datapath)
+      kml_path <- input$envKmlUpload$datapath
+      geom_sf <- tryCatch({
+        st_read(kml_path) %>% st_zm() %>% st_cast("MULTIPOLYGON")
+      }, error = function(e) {
+        showNotification("Error reading KML file.", type = "error")
+        return(NULL)
+      })
+      if (is.null(geom_sf)) return
+      if (nrow(geom_sf) > 1) {
+        geom_sf <- st_sf(geometry = st_union(geom_sf$geometry))
+      }
+      geom_sf <- st_transform(geom_sf, 4326)
+
+      map %>%
+        clearShapes() %>%
+        addPolygons(
+          data = geom_sf,
+          group = "Features",
+          fillColor = "green",
+          fillOpacity = 0.2,
+          color = "green",
+          weight = 2
+        ) %>%
+        flyToBounds(
+          lng1 = st_bbox(geom_sf)$xmin[[1]],
+          lat1 = st_bbox(geom_sf)$ymin[[1]],
+          lng2 = st_bbox(geom_sf)$xmax[[1]],
+          lat2 = st_bbox(geom_sf)$ymax[[1]]
+        ) %>%
+        showGroup("Features")
+
+      rv_env$userGeometry <- list(source = "sf", geometry = geom_sf)
+      showNotification("KML loaded. Click 'Get metrics'.", type = "message")
+    })
+
+    observeEvent(input$getEnvMetrics, {
+      req(rv_env$userGeometry)
+      geom <- if (!is.null(rv_env$userGeometry$source) && rv_env$userGeometry$source == "sf") {
+        rv_env$userGeometry$geometry
+      } else {
+        leaflet_feature_to_mapbiomas_geom(rv_env$userGeometry)
+      }
+      if (is.null(geom)) {
+        showNotification("Invalid geometry. Draw a polygon on the map.", type = "error")
+        return()
+      }
+
+      showModal(modalDialog(
+        title = "Loading Environmental Analysis metrics...",
+        "Querying MapBiomas API (Hipsometry, Slope, Aspect). Please wait...",
+        footer = NULL,
+        size = "s"
+      ))
+
+      tryCatch({
+        plots <- list()
+        for (metric_name in names(ENV_ANALYSIS_OPTS)) {
+          opt <- ENV_ANALYSIS_OPTS[[metric_name]]
+          result <- mapbiomas_client$get_area_statistics(
+            region = "brazil",
+            subtheme_key = opt$subtheme,
+            legend_key = opt$legend,
+            pixel_value = opt$pixel_values,
+            year = NULL,
+            geometry = geom,
+            spatial_method = "union"
+          )
+          df <- parse_area_statistics_to_df(result)
+          if (nrow(df) == 0) next
+
+          leg <- mapbiomas_client$get_legend_by_key("brazil", opt$legend)
+          items <- leg$legend$items
+          pv_to_name <- setNames(
+            sapply(items, function(x) x$name[["en-US"]] %||% x$name[["pt-BR"]] %||% ""),
+            sapply(items, function(x) x$pixelValue)
+          )
+          pv_to_color <- setNames(
+            sapply(items, function(x) x$color %||% "#999999"),
+            sapply(items, function(x) x$pixelValue)
+          )
+
+          df$label <- pv_to_name[as.character(df$pixelValue)]
+          df$label[is.na(df$label) | df$label == ""] <- paste0("Class ", df$pixelValue[is.na(df$label) | df$label == ""])
+          if (metric_name == "Slope") {
+            range_str <- SLOPE_PERCENT_RANGES[as.character(df$pixelValue)]
+            df$label <- paste0(df$label, ifelse(!is.na(range_str), paste0(" (", range_str, ")"), ""))
+          }
+          df$color <- pv_to_color[as.character(df$pixelValue)]
+          df$color[is.na(df$color)] <- "#999999"
+          df$area_ha <- round(df$area_ha, 2)
+
+          p <- plot_ly(df, labels = ~label, values = ~area_ha, type = "pie",
+                       hole = 0.6,
+                       marker = list(colors = df$color),
+                       textinfo = "none",
+                       hovertemplate = "%{label}<br>%{value:.2f} ha<br>%{percent:.2f}%<extra></extra>") %>%
+            layout(
+              title = list(text = metric_name, font = list(size = 14)),
+              showlegend = TRUE,
+              legend = list(orientation = "h", x = 0.5, xanchor = "center", y = -0.1),
+              margin = list(t = 50, b = 60),
+              paper_bgcolor = "transparent",
+              plot_bgcolor = "transparent"
+            )
+          plots[[metric_name]] <- p
+        }
+
+        rv_env$hipsometryPlot <- plots[["Hipsometry"]]
+        rv_env$slopePlot <- plots[["Slope"]]
+        rv_env$aspectPlot <- plots[["Aspect"]]
+
+        removeModal()
+        modal_plots <- list()
+        if (!is.null(plots[["Hipsometry"]])) modal_plots <- c(modal_plots, list(column(4, plotlyOutput(ns("envHipsometryPlot"), height = "380px"))))
+        if (!is.null(plots[["Slope"]])) modal_plots <- c(modal_plots, list(column(4, plotlyOutput(ns("envSlopePlot"), height = "380px"))))
+        if (!is.null(plots[["Aspect"]])) modal_plots <- c(modal_plots, list(column(4, plotlyOutput(ns("envAspectPlot"), height = "380px"))))
+        if (length(modal_plots) == 0) {
+          removeModal()
+          showNotification("No data returned for the geometry.", type = "warning")
+          return()
+        }
+        showModal(modalDialog(
+          title = "Environmental Analysis - Hipsometry, Slope and Aspect",
+          fluidRow(modal_plots),
+          size = "l",
+          easyClose = TRUE,
+          footer = modalButton("Close")
+        ))
+      }, error = function(e) {
+        removeModal()
+        showNotification(paste("Error fetching Environmental Analysis metrics:", e$message), type = "error")
+      })
+    })
+
+    output$envHipsometryPlot <- renderPlotly({
+      req(rv_env$hipsometryPlot)
+      rv_env$hipsometryPlot
+    })
+    output$envSlopePlot <- renderPlotly({
+      req(rv_env$slopePlot)
+      rv_env$slopePlot
+    })
+    output$envAspectPlot <- renderPlotly({
+      req(rv_env$aspectPlot)
+      rv_env$aspectPlot
+    })
+  })
+}
+
+# Server do submodulo MapBiomas - Atmosphere (precipitacao)
+mapbiomasAtmosphereServer <- function(id, leaflet_map) {
+  moduleServer(id, function(input, output, session) {
+    ns <- session$ns
+    mainInput <- leaflet_map$mapInput
+    map <- leaflet_map$proxy
+
+    rv_atm <- reactiveValues(
+      userGeometry = NULL,
+      precipData = NULL,
+      tempData = NULL,
+      precipClimatologyPlot = NULL,
+      precipAnomalyPlot = NULL,
+      tempClimatologyPlot = NULL,
+      tempAnomalyPlot = NULL
+    )
+
+    output$atmosphere_file_ui <- renderUI({
+      fileInput(ns("atmosphereKmlUpload"), "Upload KML or draw on map", accept = ".kml")
+    })
+
+    observeEvent(mainInput$map_draw_new_feature, {
+      rv_atm$userGeometry <- mainInput$map_draw_new_feature
+    })
+
+    observeEvent(mainInput$map_draw_deleted_features, {
+      rv_atm$userGeometry <- NULL
+      map %>% clearShapes()
+      output$atmosphere_file_ui <- renderUI({
+        fileInput(ns("atmosphereKmlUpload"), "Upload KML or draw on map", accept = ".kml")
+      })
+    })
+
+    observeEvent(input$atmosphereKmlUpload, {
+      req(input$atmosphereKmlUpload$datapath)
+      kml_path <- input$atmosphereKmlUpload$datapath
+      geom_sf <- tryCatch({
+        st_read(kml_path) %>% st_zm() %>% st_cast("MULTIPOLYGON")
+      }, error = function(e) {
+        showNotification("Error reading KML file.", type = "error")
+        return(NULL)
+      })
+      if (is.null(geom_sf)) return
+      if (nrow(geom_sf) > 1) {
+        geom_sf <- st_sf(geometry = st_union(geom_sf$geometry))
+      }
+      geom_sf <- st_transform(geom_sf, 4326)
+      map %>%
+        clearShapes() %>%
+        addPolygons(
+          data = geom_sf,
+          group = "Features",
+          fillColor = "green",
+          fillOpacity = 0.2,
+          color = "green",
+          weight = 2
+        ) %>%
+        flyToBounds(
+          lng1 = st_bbox(geom_sf)$xmin[[1]],
+          lat1 = st_bbox(geom_sf)$ymin[[1]],
+          lng2 = st_bbox(geom_sf)$xmax[[1]],
+          lat2 = st_bbox(geom_sf)$ymax[[1]]
+        ) %>%
+        showGroup("Features")
+      rv_atm$userGeometry <- list(source = "sf", geometry = geom_sf)
+      showNotification("KML loaded. Click 'Get Precipitation and Temperature Plots'.", type = "message")
+    })
+
+    observeEvent(input$getPrecipitationPlots, {
+      req(rv_atm$userGeometry)
+      geom <- if (!is.null(rv_atm$userGeometry$source) && rv_atm$userGeometry$source == "sf") {
+        rv_atm$userGeometry$geometry
+      } else {
+        leaflet_feature_to_mapbiomas_geom(rv_atm$userGeometry)
+      }
+      if (is.null(geom)) {
+        showNotification("Invalid geometry. Draw a polygon on the map.", type = "error")
+        return()
+      }
+
+      showModal(modalDialog(
+        title = "Loading precipitation and temperature data...",
+        "Querying MapBiomas API. Please wait...",
+        footer = NULL,
+        size = "s"
+      ))
+
+      tryCatch({
+        result_precip <- mapbiomas_client$get_precipitation_statistics(
+          region = "brazil", geometry = geom, years = 1985:2024
+        )
+        result_temp <- mapbiomas_client$get_temperature_statistics(
+          region = "brazil", geometry = geom, years = 1985:2024
+        )
+        df_precip <- parse_precipitation_statistics_to_df(result_precip)
+        df_temp <- parse_precipitation_statistics_to_df(result_temp)
+        if (is.null(df_precip) || nrow(df_precip) == 0) {
+          removeModal()
+          showNotification("No precipitation data returned for the geometry.", type = "warning")
+          return()
+        }
+        if (is.null(df_temp) || nrow(df_temp) == 0) {
+          removeModal()
+          showNotification("No temperature data returned for the geometry.", type = "warning")
+          return()
+        }
+
+        rv_atm$precipData <- df_precip
+        rv_atm$tempData <- df_temp
+
+        month_names <- c("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+
+        # Helper to build climatology plot
+        build_climatology_plot <- function(df, title, y_label) {
+          df$month_label <- factor(month_names[df$month], levels = month_names)
+          clim_data <- df
+          years_avail <- sort(unique(df$year))
+          n_traces <- 1 + length(years_avail)
+          p <- plot_ly() %>%
+            add_trace(data = clim_data, x = ~month_label, y = ~value,
+                      type = "box", name = "Climatology",
+                      boxpoints = "outliers",
+                      marker = list(color = "lightblue"),
+                      line = list(color = "rgb(100,100,150)"),
+                      showlegend = FALSE)
+          year_visible <- rep(FALSE, length(years_avail))
+          year_visible[length(years_avail)] <- TRUE
+          for (i in seq_along(years_avail)) {
+            yr <- years_avail[i]
+            df_yr <- clim_data[clim_data$year == yr, ]
+            df_yr <- df_yr[order(df_yr$month), ]
+            p <- p %>% add_trace(data = df_yr, x = ~month_label, y = ~value,
+                                 type = "scatter", mode = "lines+markers",
+                                 name = as.character(yr),
+                                 line = list(color = "red"), marker = list(size = 8),
+                                 visible = year_visible[i])
+          }
+          buttons_list <- lapply(seq_along(years_avail), function(i) {
+            vis <- rep(FALSE, n_traces)
+            vis[1] <- TRUE
+            vis[1 + i] <- TRUE
+            list(label = as.character(years_avail[i]), method = "update",
+                 args = list(list(visible = vis), list()))
+          })
+          p %>% layout(
+            title = title,
+            xaxis = list(title = "Month"),
+            yaxis = list(title = y_label),
+            showlegend = TRUE,
+            legend = list(orientation = "v", x = 1.02, y = 1, xanchor = "left", yanchor = "top"),
+            margin = list(r = 180),
+            updatemenus = list(list(
+              active = length(years_avail) - 1, type = "dropdown",
+              buttons = buttons_list, direction = "down", showactive = TRUE,
+              x = 1.02, xanchor = "left", y = 0.98, yanchor = "top"
+            ))
+          )
+        }
+
+        # Helper to build anomaly plot
+        build_anomaly_plot <- function(df, title, y_label) {
+          clim_monthly <- aggregate(value ~ month, data = df, FUN = mean, na.rm = TRUE)
+          names(clim_monthly)[2] <- "climatology"
+          df_anom <- merge(df, clim_monthly, by = "month")
+          df_anom$anomaly <- df_anom$value - df_anom$climatology
+          df_anom$date <- as.Date(paste(df_anom$year, df_anom$month, "01"), "%Y %m %d")
+          df_anom <- df_anom[order(df_anom$date), ]
+          n_rows <- nrow(df_anom)
+          xaxis_config <- list(
+            title = "Date",
+            rangeslider = list(visible = TRUE, thickness = 0.05),
+            rangeselector = list(buttons = list(
+              list(count = 1, label = "1m", step = "month", stepmode = "backward"),
+              list(count = 6, label = "6m", step = "month", stepmode = "backward"),
+              list(count = 1, label = "YTD", step = "year", stepmode = "todate"),
+              list(count = 1, label = "1y", step = "year", stepmode = "backward"),
+              list(step = "all", label = "All")
+            ))
+          )
+          if (n_rows >= 12) {
+            last_12 <- tail(df_anom, 12)
+            xaxis_config$range <- c(as.character(min(last_12$date)), as.character(max(last_12$date)))
+          }
+          plot_ly() %>%
+            add_trace(data = df_anom, x = ~date, y = ~climatology,
+                      type = "scatter", mode = "lines", name = "Climatology",
+                      line = list(color = "lightgray", dash = "dot"),
+                      fill = "tozeroy", fillcolor = "rgba(200,200,200,0.3)") %>%
+            add_trace(data = df_anom, x = ~date, y = ~value,
+                      type = "scatter", mode = "lines+markers", name = "Observed",
+                      line = list(color = "green"), marker = list(size = 6)) %>%
+            add_bars(data = df_anom, x = ~date, y = ~anomaly, name = "Anomaly",
+                     marker = list(color = ~ifelse(anomaly >= 0, "rgba(0,100,255,0.6)", "rgba(255,50,50,0.6)"))) %>%
+            layout(
+              title = title,
+              xaxis = xaxis_config,
+              yaxis = list(title = y_label),
+              showlegend = TRUE,
+              legend = list(orientation = "v", x = 1.02, xanchor = "left", y = 1, yanchor = "top"),
+              margin = list(b = 80, t = 50, r = 120)
+            )
+        }
+
+        rv_atm$precipClimatologyPlot <- build_climatology_plot(df_precip, "Climatology - Monthly Precipitation", "mm/month")
+        rv_atm$tempClimatologyPlot <- build_climatology_plot(df_temp, "Climatology - Monthly Mean Temperature", "\u00B0C")
+        rv_atm$precipAnomalyPlot <- build_anomaly_plot(df_precip, "Anomaly - Precipitation vs Climatology", "mm/month")
+        rv_atm$tempAnomalyPlot <- build_anomaly_plot(df_temp, "Anomaly - Temperature vs Climatology", "\u00B0C")
+
+        removeModal()
+        showModal(modalDialog(
+          title = "Precipitation and Temperature - Climatology and Anomaly",
+          fluidRow(
+            column(6, plotlyOutput(ns("precipClimatologyPlot"), height = "320px"),
+                   style = "padding-right: 12px;"),
+            column(6, plotlyOutput(ns("tempClimatologyPlot"), height = "320px"),
+                   style = "padding-left: 12px;")
+          ),
+          fluidRow(
+            column(6, plotlyOutput(ns("precipAnomalyPlot"), height = "360px"),
+                   style = "padding-right: 12px; margin-top: 24px;"),
+            column(6, plotlyOutput(ns("tempAnomalyPlot"), height = "360px"),
+                   style = "padding-left: 12px; margin-top: 24px;")
+          ),
+          size = "l",
+          easyClose = TRUE,
+          footer = modalButton("Close")
+        ))
+
+      }, error = function(e) {
+        removeModal()
+        showNotification(
+          paste("Error fetching data:", e$message),
+          type = "error"
+        )
+      })
+    })
+
+    output$precipClimatologyPlot <- renderPlotly({
+      req(rv_atm$precipClimatologyPlot)
+      rv_atm$precipClimatologyPlot
+    })
+    output$tempClimatologyPlot <- renderPlotly({
+      req(rv_atm$tempClimatologyPlot)
+      rv_atm$tempClimatologyPlot
+    })
+    output$precipAnomalyPlot <- renderPlotly({
+      req(rv_atm$precipAnomalyPlot)
+      rv_atm$precipAnomalyPlot
+    })
+    output$tempAnomalyPlot <- renderPlotly({
+      req(rv_atm$tempAnomalyPlot)
+      rv_atm$tempAnomalyPlot
+    })
+  })
+}
+
 # Server do modulo MapBiomas (container)
 mapbiomasServer <- function(id, leaflet_map) {
   moduleServer(id, function(input, output, session) {
     mapbiomasAgricultureServer("agriculture", leaflet_map)
+    mapbiomasEnvAnalysisServer("envAnalysis", leaflet_map)
     mapbiomasSoilServer("soil", leaflet_map)
+    mapbiomasAtmosphereServer("atmosphere", leaflet_map)
   })
 }

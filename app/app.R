@@ -62,28 +62,37 @@ ui <- fluidPage(
         margin-left: 330px;
         padding: 0;
       }
-      /* Modal de incio: tamanho reduzido */
+      /* Startup modal: reduced size */
       .modal-dialog.modal-sm { 
         max-width: 420px; 
         width: 90%; 
         margin: 5vh auto;
       }
-      /* Modais de resultados: grandes, centralizados, altura conforme contedo */
+      /* Result modals: fit on screen, scrollable when content is large */
       .modal-dialog { 
-        max-width: 90%; 
+        max-width: min(90vw, 1400px); 
         width: 90%; 
+        max-height: 90vh;
         margin: 5vh auto;
       }
       .modal-lg { 
-        max-width: 92%; 
+        max-width: min(92vw, 1600px); 
         width: 92%; 
+        max-height: 90vh;
         margin: 5vh auto;
       }
-      .modal-body {
-        max-height: none;
-      }
       .modal-content {
-        height: auto;
+        max-height: 90vh;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+      .modal-body {
+        overflow-y: auto;
+        overflow-x: auto;
+        flex: 1;
+        min-height: 0;
+        max-height: calc(90vh - 120px);
       }
     "))
   ),

@@ -706,6 +706,62 @@ MapBiomasAPIClient <- R6::R6Class(
       }
     },
 
+    # Get monthly precipitation statistics (atmosphere subtheme)
+    # Returns data with year, month, value (mm) for the given geometry
+    # Builds URL manually to avoid httr vapply error with vector params (year, pixelValue)
+    get_precipitation_statistics = function(region = "brazil", geometry,
+                                            years = 1985:2024,
+                                            spatial_method = "union") {
+      self$get_atmosphere_subtheme_statistics(
+        region, geometry, years, spatial_method,
+        "atmosphere_monthly_precipitation",
+        "atmosphere_monthly_precipitation_mapbiomas_monthly_precipitation"
+      )
+    },
+
+    # Get monthly mean air temperature statistics (atmosphere subtheme)
+    # Returns data with year, month, value (C) for the given geometry
+    get_temperature_statistics = function(region = "brazil", geometry,
+                                          years = 1985:2024,
+                                          spatial_method = "union") {
+      self$get_atmosphere_subtheme_statistics(
+        region, geometry, years, spatial_method,
+        "atmosphere_monthly_mean_air_temperature",
+        "atmosphere_monthly_mean_air_temperature_mapbiomas_monthly_mean_air_temperature"
+      )
+    },
+
+    # Internal: fetch atmosphere subtheme statistics (precipitation, temperature, etc.)
+    get_atmosphere_subtheme_statistics = function(region, geometry, years,
+                                                  spatial_method, subtheme_key, legend_key) {
+      if (is.null(geometry)) stop("geometry is required")
+      coords <- geometry_to_api_coords(geometry)
+      geom_json <- jsonlite::toJSON(coords, auto_unbox = TRUE)
+      pixel_values <- as.integer(1:33)
+      year_part <- paste(paste0("year=", as.integer(years)), collapse = "&")
+      pixel_part <- paste(paste0("pixelValue=", pixel_values), collapse = "&")
+      q_str <- paste0(
+        "spatialMethod=", URLencode(spatial_method),
+        "&subthemeKey=", URLencode(subtheme_key),
+        "&legendKey=", URLencode(legend_key),
+        "&statMethod=", URLencode("mean"),
+        "&territoryCategoryId=4",
+        "&geometry=", URLencode(geom_json, reserved = TRUE),
+        "&", year_part,
+        "&", pixel_part
+      )
+      url <- paste0(self$base_url, "/", region, "/statistics/subtheme")
+      full_url <- paste0(url, "?", q_str)
+      log_request_details("GET", full_url)
+      response <- GET(full_url)
+      if (response$status_code == 200) {
+        return(content(response, as = "parsed"))
+      } else {
+        log_error(sprintf("Failed to get subtheme statistics - Status: %d", response$status_code))
+        stop("Error: ", response$status_code, " - ", content(response, "text"))
+      }
+    },
+
     # GET /{region}/statistics/ranking/subtheme - Get ranking subtheme statistics
     get_ranking_subtheme = function(region, ...) {
       url <- paste0(self$base_url, "/", region, "/statistics/ranking/subtheme")
@@ -785,7 +841,7 @@ get_legend_leaf_items_from_response <- function(legend_response) {
       item <- item_list[[i]]
       children <- item$children
       if (is.null(children) || length(children) == 0) {
-        nm <- item$name[["pt-BR"]] %||% item$name[["en-US"]] %||% as.character(item$pixelValue)
+        nm <- item$name[["en-US"]] %||% item$name[["pt-BR"]] %||% as.character(item$pixelValue)
         leaves[[length(leaves) + 1]] <- list(
           pixelValue = as.integer(item$pixelValue),
           name = nm,
@@ -805,6 +861,70 @@ get_legend_leaf_items_from_response <- function(legend_response) {
     pixelValue = sapply(result, function(x) x$pixelValue),
     name = sapply(result, function(x) x$name),
     color = sapply(result, function(x) x$color),
+    stringsAsFactors = FALSE
+  )
+}
+
+# Helper: Parse precipitation (subtheme) statistics to data frame
+# API returns statistic array with year and items (month, value)
+# Handles both: one year per statistic, or multiple years in one statistic
+parse_precipitation_statistics_to_df <- function(api_response) {
+  if (is.null(api_response$statistic) || length(api_response$statistic) == 0) {
+    return(data.frame(year = integer(), month = integer(), value = numeric(), stringsAsFactors = FALSE))
+  }
+  rows <- list()
+  for (s in api_response$statistic) {
+    yrs <- s$year
+    if (is.null(yrs)) next
+    yrs <- as.integer(unlist(yrs))
+    if (length(yrs) == 0) next
+
+    items <- s$items
+    if (is.null(items) || length(items) == 0) next
+
+    n_years <- length(yrs)
+    n_items <- length(items)
+    items_per_year <- n_items / n_years
+
+    if (items_per_year >= 1 && items_per_year == as.integer(items_per_year)) {
+      for (yi in seq_along(yrs)) {
+        start_idx <- (yi - 1L) * items_per_year + 1L
+        end_idx <- yi * items_per_year
+        for (ii in start_idx:end_idx) {
+          it <- items[[ii]]
+          if (is.null(it)) next
+          m <- it$month
+          v <- it$value
+          if (is.null(m) || is.null(v)) next
+          rows[[length(rows) + 1L]] <- list(
+            year = as.integer(yrs[yi])[1L],
+            month = as.integer(m)[1L],
+            value = as.numeric(v)[1L]
+          )
+        }
+      }
+    } else {
+      for (it in items) {
+        if (is.null(it)) next
+        m <- it$month
+        v <- it$value
+        if (is.null(m) || is.null(v)) next
+        yr <- as.integer(yrs[1L])[1L]
+        rows[[length(rows) + 1L]] <- list(
+          year = yr,
+          month = as.integer(m)[1L],
+          value = as.numeric(v)[1L]
+        )
+      }
+    }
+  }
+  if (length(rows) == 0) {
+    return(data.frame(year = integer(), month = integer(), value = numeric(), stringsAsFactors = FALSE))
+  }
+  data.frame(
+    year = vapply(rows, function(x) x$year, FUN.VALUE = integer(1)),
+    month = vapply(rows, function(x) x$month, FUN.VALUE = integer(1)),
+    value = vapply(rows, function(x) x$value, FUN.VALUE = numeric(1)),
     stringsAsFactors = FALSE
   )
 }

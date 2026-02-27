@@ -63,10 +63,11 @@ imageViewerServer <- function(id, leaflet_map) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
 
-    mainInput <- leaflet_map$mapInput 
-    overlayGroups <- leaflet_map$overlayGroups 
-    baseGroups <- leaflet_map$baseGroups 
+    mainInput <- leaflet_map$mapInput
+    overlayGroups <- leaflet_map$overlayGroups
+    baseGroups <- leaflet_map$baseGroups
     map <- leaflet_map$proxy
+    addImageLayer <- leaflet_map$addImageLayer
 
     rv <- reactiveValues(
       availableAssets = NULL,
@@ -252,7 +253,7 @@ imageViewerServer <- function(id, leaflet_map) {
       
       if (!is.null(selected_feature)) {
         withProgress(message = "Loading asset to map...", value = 0, {
-          processAndLoadAsset(input, selected_feature, rv, map, session)
+          processAndLoadAsset(input, selected_feature, rv, map, session, addImageLayer)
           setProgress(1, detail = "Done!")
         })
       }
@@ -261,7 +262,7 @@ imageViewerServer <- function(id, leaflet_map) {
 }
 
 # Helper Functions
-processAndLoadAsset <- function(input, selected_feature, rv, map, session = NULL) {
+processAndLoadAsset <- function(input, selected_feature, rv, map, session = NULL, addImageLayer = NULL) {
   tryCatch({
     log_info("Processing selected asset")
     
@@ -301,13 +302,13 @@ processAndLoadAsset <- function(input, selected_feature, rv, map, session = NULL
       if (!is.null(session)) {
         setProgress(0.5, detail = "Loading and processing raster...", session = session)
       }
-      loadSingleBands(input, asset_urls, asset_date, map_bbox, rv, map)
+      loadSingleBands(input, asset_urls, asset_date, map_bbox, rv, map, addImageLayer)
     } else {
       # RGB composite processing
       if (!is.null(session)) {
         setProgress(0.5, detail = "Loading RGB composite...", session = session)
       }
-      loadRGBComposite(input, asset_urls, asset_date, map_bbox, rv, map)
+      loadRGBComposite(input, asset_urls, asset_date, map_bbox, rv, map, addImageLayer)
     }
     
     if (!is.null(session)) {
@@ -325,24 +326,16 @@ processAndLoadAsset <- function(input, selected_feature, rv, map, session = NULL
   })
 }
 
-loadSingleBands <- function(input, asset_urls, asset_date, map_bbox, rv, map) {
-  #new_layers <- paste(input$collection, names(asset_urls), asset_date, sep = "_")
-  
+loadSingleBands <- function(input, asset_urls, asset_date, map_bbox, rv, map, addImageLayer = NULL) {
   for (band_name in names(asset_urls)) {
     url <- paste0("/vsicurl/", asset_urls[[band_name]])
     rast <- processRaster(url, map_bbox)
-    
+
     layer_name <- paste(input$collection, band_name, asset_date, sep = "_")
     rv$baseGroups <- unique(c(rv$baseGroups, layer_name))
 
     map %>%
       clearGroup(layer_name) %>%
-      addLayersControl(
-        baseGroups = rv$baseGroups,
-        overlayGroups = rv$overlayGroups,
-        options = layersControlOptions(collapsed = FALSE),
-        position = "topright"
-      ) %>%
       addRasterImage(
         rast,
         layerId = layer_name,
@@ -352,21 +345,18 @@ loadSingleBands <- function(input, asset_urls, asset_date, map_bbox, rv, map) {
         method = "bilinear"
       ) %>%
       showGroup(layer_name)
+
+    if (is.function(addImageLayer)) {
+      addImageLayer(layer_name, layer_name)
+    }
   }
 }
 
-loadRGBComposite <- function(input, asset_urls, asset_date, map_bbox, rv, map) {
+loadRGBComposite <- function(input, asset_urls, asset_date, map_bbox, rv, map, addImageLayer = NULL) {
   rgb_layer_name <- paste(input$collection, "RGB", asset_date, sep = "_")
   rv$baseGroups <- unique(c(rv$baseGroups, rgb_layer_name))
-  
-  map %>%
-    clearGroup(rgb_layer_name) %>%
-    addLayersControl(
-      baseGroups = rv$baseGroups,
-      overlayGroups = rv$overlayGroups,
-      options = layersControlOptions(collapsed = FALSE),
-      position = "topright"
-    )
+
+  map %>% clearGroup(rgb_layer_name)
   
   rgb_rasts <- list()
   for (i in 1:3) {
@@ -399,20 +389,24 @@ loadRGBComposite <- function(input, asset_urls, asset_date, map_bbox, rv, map) {
   rgb_raster <- c(r, g, b)
   rgb_raster <- brick(rgb_raster)
   
-    # Domnio 0-1 para reflectncia j escalada (INPE BDC)
+    # Domínio 0-1 para reflectância já escalada (INPE BDC)
     map %>%
-    addRasterRGB(
-      rgb_raster,
-      r = 1,
-      g = 2,
-      b = 3,
-      layerId = rgb_layer_name,
-      group = rgb_layer_name,
-      opacity = 0.9,
-      quantiles = NULL,
-      domain = c(0, 1)
-    ) %>%
-    showGroup(rgb_layer_name)
+      addRasterRGB(
+        rgb_raster,
+        r = 1,
+        g = 2,
+        b = 3,
+        layerId = rgb_layer_name,
+        group = rgb_layer_name,
+        opacity = 0.9,
+        quantiles = NULL,
+        domain = c(0, 1)
+      ) %>%
+      showGroup(rgb_layer_name)
+
+  if (is.function(addImageLayer)) {
+    addImageLayer(rgb_layer_name, rgb_layer_name)
+  }
 }
 
 processRaster <- function(url, map_bbox) {

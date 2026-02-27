@@ -50,7 +50,7 @@ get_geoserver_layers <- function(
       return(layers_df)
     },
     error = function(e) {
-      log_error(paste("Erro ao buscar layers do GeoServer:", e$message))
+      log_error(paste("Error fetching GeoServer layers:", e$message))
       return(NULL)
     }
   )
@@ -107,11 +107,23 @@ addLayersControlTree <- function(map, baseTree, overlayTree = NULL, options = li
     var mapInstance = this;
     function getLayerById(id) {
       var found = null;
-      mapInstance.eachLayer(function(layer) {
-        if(layer.options && layer.options.layerId === id) {
-          found = layer;
-        }
-      });
+      if (mapInstance.layerManager) {
+        found = mapInstance.layerManager.getLayer('image', id);
+        if (!found) found = mapInstance.layerManager.getLayer('tile', id);
+        if (!found) found = mapInstance.layerManager.getLayer('shape', id);
+        if (!found) found = mapInstance.layerManager.getLayer('geojson', id);
+        if (!found) found = mapInstance.layerManager.getLayerGroup(id, false);
+      }
+      if (!found) {
+        mapInstance.eachLayer(function(layer) {
+          if(layer.options && layer.options.layerId === id) found = layer;
+          if (!found && layer.eachLayer) {
+            layer.eachLayer(function(sublayer) {
+              if (sublayer.options && sublayer.options.layerId === id) found = sublayer;
+            });
+          }
+        });
+      }
       return found;
     }
     function assignLayers(tree) {
@@ -144,6 +156,8 @@ addLayersControlTree <- function(map, baseTree, overlayTree = NULL, options = li
     };
     var ctl = L.control.layers.tree(baseTreeObj, overlayTreeObj, controlSpecificOptions);
     ctl.addTo(mapInstance).collapseTree(true).expandSelected(false);
+    mapInstance._layersTreeControl = ctl;
+    if (typeof window !== 'undefined') window._leafletLayersTreeControl = ctl;
     var hiddenLayers = %s;
     hiddenLayers.forEach(function(layerId) {
       var layer = getLayerById(layerId);
@@ -155,13 +169,55 @@ addLayersControlTree <- function(map, baseTree, overlayTree = NULL, options = li
   onRender(map %>% registerPlugin(layerTreePlugin), jsCode)
 }
 
+# Script para handler que atualiza a arvore de overlays quando o Image Viewer adiciona camadas
+# Usa setTimeout para garantir que as camadas (addRasterImage/addRasterRGB) ja foram adicionadas
+# ao mapa pelo leaflet proxy antes de associar ao controle
+LAYERS_TREE_UPDATE_SCRIPT <- HTML("
+  Shiny.addCustomMessageHandler('updateOverlayTree', function(tree) {
+    var ctl = window._leafletLayersTreeControl;
+    if (!ctl || !ctl._map) return;
+    var map = ctl._map;
+    function getLayerById(id) {
+      var found = null;
+      if (map.layerManager) {
+        found = map.layerManager.getLayer('image', id);
+        if (!found) found = map.layerManager.getLayer('tile', id);
+        if (!found) found = map.layerManager.getLayer('shape', id);
+        if (!found) found = map.layerManager.getLayer('geojson', id);
+        if (!found) found = map.layerManager.getLayerGroup(id, false);
+      }
+      if (!found) {
+        map.eachLayer(function(layer) {
+          if (layer.options && layer.options.layerId === id) { found = layer; }
+          if (!found && layer.eachLayer) {
+            layer.eachLayer(function(sublayer) {
+              if (sublayer.options && sublayer.options.layerId === id) { found = sublayer; }
+            });
+          }
+        });
+      }
+      return found;
+    }
+    function doUpdate() {
+      function assignLayers(t) {
+        if (t.layerId) { t.layer = getLayerById(t.layerId); }
+        if (t.children) { for (var i = 0; i < t.children.length; i++) assignLayers(t.children[i]); }
+      }
+      assignLayers(tree);
+      ctl.setOverlayTree(tree);
+    }
+    setTimeout(doUpdate, 150);
+  });
+")
+
 # UI do modulo do mapa
 leafletMapUI <- function(id) {
   ns <- NS(id)
   tagList(
     tags$head(
       tags$link(rel = "stylesheet", href = "https://cdn.jsdelivr.net/npm/leaflet.control.layers.tree@1.1.1/L.Control.Layers.Tree.css"),
-      tags$script(src = "https://cdn.jsdelivr.net/npm/leaflet.control.layers.tree@1.1.1/L.Control.Layers.Tree.js")
+      tags$script(src = "https://cdn.jsdelivr.net/npm/leaflet.control.layers.tree@1.1.1/L.Control.Layers.Tree.js"),
+      tags$script(LAYERS_TREE_UPDATE_SCRIPT)
     ),
     leafletOutput(ns("map"), height = "100%")
   )
@@ -174,11 +230,21 @@ leafletMapServer <- function(id) {
     ns <- NS(id)
     # Busca as layers do GeoServer
     layers_df <- get_geoserver_layers(ignore_workspaces = ignoredWorkspaces)
-    overlayTree <- if (!is.null(layers_df)) build_overlay_tree(layers_df) else NULL
-    # Adiciona grupo "Features" para desenhos
-    if (!is.null(overlayTree)) {
-      overlayTree$children[[length(overlayTree$children) + 1]] <- list(label = "Features", layerId = "Features")
+    imageLayers <- reactiveVal(list())
+
+    # Constrói a árvore de overlays completa (GeoServer + Features + Image Viewer)
+    build_full_overlay_tree <- function(img_layers = list()) {
+      children <- list()
+      if (!is.null(layers_df)) {
+        children[[1]] <- build_overlay_tree(layers_df)
+      }
+      children[[length(children) + 1]] <- list(label = "Features", layerId = "Features")
+      img_children <- lapply(img_layers, function(x) list(label = x$label, layerId = x$layerId))
+      children[[length(children) + 1]] <- list(label = "Image Viewer", collapsed = FALSE, children = img_children)
+      list(label = "Overlays", children = children)
     }
+
+    overlayTree <- build_full_overlay_tree()
     baseTree <- list(
       label = "Base Maps",
       children = list(
@@ -248,11 +314,22 @@ leafletMapServer <- function(id) {
       m
     })
     mapProxy <- leafletProxy(ns("map"))
+
+    # Adiciona camada do Image Viewer à árvore de controle (em vez de addLayersControl)
+    addImageLayer <- function(layerId, label) {
+      current <- imageLayers()
+      new_layers <- c(current, list(list(layerId = layerId, label = label)))
+      imageLayers(new_layers)
+      tree <- build_full_overlay_tree(new_layers)
+      session$sendCustomMessage("updateOverlayTree", tree)
+    }
+
     return(list(
       proxy = mapProxy,
       mapInput = input,
       overlayGroups = if (!is.null(layers_df)) layers_df$full_name else character(0),
-      baseGroups = fixedBaseGroups
+      baseGroups = fixedBaseGroups,
+      addImageLayer = addImageLayer
     ))
   })
 }

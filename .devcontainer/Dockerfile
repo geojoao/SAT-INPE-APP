@@ -33,7 +33,8 @@ RUN install2.r --error \
     sf \
     leafem \
     raster \
-    purrr
+    purrr \
+    signal
 
 # Instala BBMQuant mockado (pacote local para desenvolvimento)
 COPY BBMQuant /tmp/BBMQuant

@@ -52,16 +52,11 @@ geometry_to_api_coords <- function(geometry) {
     }
     stop("WKT deve ser POLYGON ou MULTIPOLYGON")
   }
-  if (is.list(geometry)) {
-    if (!is.null(geometry$coordinates)) {
-      if (geometry$type == "Polygon") return(geometry$coordinates)
-      if (geometry$type == "MultiPolygon") return(geometry$coordinates[[1]])
-      if (geometry$type == "Feature") return(geometry_to_api_coords(geometry$geometry))
-    }
-    stop("GeoJSON invalido: deve ter type e coordinates")
-  }
+  # Check sf/sfc BEFORE is.list - sf objects are lists in R (extend data.frame)
   if (inherits(geometry, "sf") || inherits(geometry, "sfc")) {
-    geom_sf <- st_transform(st_sfc(st_geometry(geometry)[[1]]), 4326)
+    geom_sfc <- st_geometry(geometry)[1]
+    if (is.na(st_crs(geom_sfc))) st_crs(geom_sfc) <- 4326
+    geom_sf <- st_transform(geom_sfc, 4326)
     if (inherits(geom_sf[[1]], "POLYGON")) {
       m <- st_coordinates(geom_sf[[1]])
       ring <- lapply(seq_len(nrow(m)), function(i) as.numeric(m[i, 1:2]))
@@ -74,6 +69,14 @@ geometry_to_api_coords <- function(geometry) {
       return(list(ring))
     }
     stop("Objeto sf deve ser POLYGON ou MULTIPOLYGON")
+  }
+  if (is.list(geometry)) {
+    if (!is.null(geometry$coordinates)) {
+      if (geometry$type == "Polygon") return(geometry$coordinates)
+      if (geometry$type == "MultiPolygon") return(geometry$coordinates[[1]])
+      if (geometry$type == "Feature") return(geometry_to_api_coords(geometry$geometry))
+    }
+    stop("GeoJSON invalido: deve ter type e coordinates")
   }
   stop("geometry deve ser: string WKT, lista GeoJSON ou objeto sf")
 }

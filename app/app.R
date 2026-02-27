@@ -99,6 +99,9 @@ ui <- fluidPage(
   div(class = "sidebar",
       tags$img(src = "logo_h.png", width = "100%"),
       h2(class = "center-heading", "S.A.T."),
+      tags$p("Import KML or draw on the map. The geometry will be used by all modules below.", style = "font-size: 12px; color: #666; margin-bottom: 8px;"),
+      uiOutput("kmlUpload_ui"),
+      hr(),
       tabsetPanel(id = "mainTabs",
                   tabPanel("Time Series", 
                            timeSeriesUI("timeSeries")),
@@ -126,9 +129,72 @@ server <- function(input, output, session) {
   # Initialize Leaflet map module
   leaflet_map <- leafletMapServer("leafletMap")
   
-  # Initialize other modules with access to the Leaflet map proxy and bounds
+  # Shared geometry: KML upload or drawn on map - used by all modules
+  sharedGeometry <- reactiveValues(userGeometry = NULL)
+  map <- leaflet_map$proxy
+  mainInput <- leaflet_map$mapInput
+  
+  # KML file input UI (can be reset when shapes are deleted)
+  output$kmlUpload_ui <- renderUI({
+    fileInput("kmlUpload", "Upload KML or draw on map", accept = ".kml")
+  })
+  
+  # Handle drawn features on map
+  observeEvent(mainInput$map_draw_new_feature, {
+    sharedGeometry$userGeometry <- mainInput$map_draw_new_feature
+  })
+  
+  # Handle deleted features - clear map and reset file input
+  observeEvent(mainInput$map_draw_deleted_features, {
+    sharedGeometry$userGeometry <- NULL
+    map %>% clearShapes()
+    output$kmlUpload_ui <- renderUI({
+      fileInput("kmlUpload", "Upload KML or draw on map", accept = ".kml")
+    })
+  })
+  
+  # Handle KML file upload - shared by all modules
+  observeEvent(input$kmlUpload, {
+    req(input$kmlUpload$datapath)
+    kml_path <- input$kmlUpload$datapath
+    geom_sf <- tryCatch({
+      st_read(kml_path) %>% st_zm() %>% st_cast("MULTIPOLYGON")
+    }, error = function(e) {
+      showNotification("Error reading KML file.", type = "error")
+      return(NULL)
+    })
+    if (is.null(geom_sf)) return
+    if (nrow(geom_sf) > 1) {
+      geom_sf <- st_sf(geometry = st_union(geom_sf$geometry))
+    }
+    geom_sf <- st_transform(geom_sf, 4326)
+    
+    map %>%
+      clearShapes() %>%
+      addPolygons(
+        data = geom_sf,
+        group = "Features",
+        fillColor = "green",
+        fillOpacity = 0.2,
+        color = "green",
+        weight = 2
+      ) %>%
+      flyToBounds(
+        lng1 = st_bbox(geom_sf)$xmin[[1]],
+        lat1 = st_bbox(geom_sf)$ymin[[1]],
+        lng2 = st_bbox(geom_sf)$xmax[[1]],
+        lat2 = st_bbox(geom_sf)$ymax[[1]]
+      ) %>%
+      showGroup("Features")
+    
+    sharedGeometry$userGeometry <- list(source = "sf", geometry = geom_sf)
+    showNotification("KML loaded. The geometry is available for all modules.", type = "message")
+  })
+  
+  # Initialize other modules with access to the Leaflet map proxy, bounds, and shared geometry
   timeSeriesServer("timeSeries", 
-                   leaflet_map = leaflet_map
+                   leaflet_map = leaflet_map,
+                   shared_geometry = sharedGeometry
   )
   
   imageViewerServer("imageViewer",
@@ -136,7 +202,8 @@ server <- function(input, output, session) {
   )
 
   mapbiomasServer("mapbiomas",
-                  leaflet_map = leaflet_map
+                  leaflet_map = leaflet_map,
+                  shared_geometry = sharedGeometry
   )
   
   # Log when session ends

@@ -45,7 +45,6 @@ leaflet_feature_to_mapbiomas_geom <- function(feature) {
 mapbiomasAgricultureUI <- function(id) {
   ns <- NS(id)
   div(
-    uiOutput(ns("file_ui")),
     sliderInput(ns("yearRange"), "Period (years)",
                 min = 1985, max = 2024, value = c(2015, 2024),
                 step = 1, sep = ""),
@@ -99,7 +98,6 @@ ENV_ANALYSIS_OPTS <- list(
 mapbiomasEnvAnalysisUI <- function(id) {
   ns <- NS(id)
   div(
-    uiOutput(ns("env_file_ui")),
     actionButton(ns("getEnvMetrics"), "Get Hipsometry, Slope and Aspect metrics",
                  class = "btn-primary btn-block",
                  style = "margin-top: 20px;")
@@ -110,7 +108,6 @@ mapbiomasEnvAnalysisUI <- function(id) {
 mapbiomasAtmosphereUI <- function(id) {
   ns <- NS(id)
   div(
-    uiOutput(ns("atmosphere_file_ui")),
     actionButton(ns("getPrecipitationPlots"), "Get Precipitation and Temperature Plots",
                  class = "btn-primary btn-block",
                  style = "margin-top: 20px;")
@@ -121,7 +118,6 @@ mapbiomasAtmosphereUI <- function(id) {
 mapbiomasSoilUI <- function(id) {
   ns <- NS(id)
   div(
-    uiOutput(ns("soil_file_ui")),
     tags$h5("Soil profile metrics (fractions)", style = "margin-top: 12px;"),
     selectInput(ns("soilFraction"), "Component",
                 choices = c("Sand", "Silt", "Clay"),
@@ -160,14 +156,13 @@ mapbiomasUI <- function(id) {
 }
 
 # Server do submodulo MapBiomas - Agricultura
-mapbiomasAgricultureServer <- function(id, leaflet_map) {
+mapbiomasAgricultureServer <- function(id, leaflet_map, shared_geometry) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
     mainInput <- leaflet_map$mapInput
     map <- leaflet_map$proxy
 
     rv <- reactiveValues(
-      userGeometry = NULL,
       areaTimeSeriesData = NULL,
       coveragePlot = NULL,
       secondCropPlot = NULL,
@@ -177,65 +172,12 @@ mapbiomasAgricultureServer <- function(id, leaflet_map) {
       irrigationLegendItems = NULL
     )
 
-    output$file_ui <- renderUI({
-      fileInput(ns("kmlUpload"), "Upload KML or draw on map", accept = ".kml")
-    })
-
-    observeEvent(mainInput$map_draw_new_feature, {
-      rv$userGeometry <- mainInput$map_draw_new_feature
-    })
-
-    observeEvent(mainInput$map_draw_deleted_features, {
-      rv$userGeometry <- NULL
-      map %>% clearShapes()
-      output$file_ui <- renderUI({
-        fileInput(ns("kmlUpload"), "Upload KML or draw on map", accept = ".kml")
-      })
-    })
-
-    observeEvent(input$kmlUpload, {
-      req(input$kmlUpload$datapath)
-      kml_path <- input$kmlUpload$datapath
-      geom_sf <- tryCatch({
-        st_read(kml_path) %>% st_zm() %>% st_cast("MULTIPOLYGON")
-      }, error = function(e) {
-        showNotification("Error reading KML file.", type = "error")
-        return(NULL)
-      })
-      if (is.null(geom_sf)) return
-      if (nrow(geom_sf) > 1) {
-        geom_sf <- st_sf(geometry = st_union(geom_sf$geometry))
-      }
-      geom_sf <- st_transform(geom_sf, 4326)
-
-      map %>%
-        clearShapes() %>%
-        addPolygons(
-          data = geom_sf,
-          group = "Features",
-          fillColor = "green",
-          fillOpacity = 0.2,
-          color = "green",
-          weight = 2
-        ) %>%
-        flyToBounds(
-          lng1 = st_bbox(geom_sf)$xmin[[1]],
-          lat1 = st_bbox(geom_sf)$ymin[[1]],
-          lng2 = st_bbox(geom_sf)$xmax[[1]],
-          lat2 = st_bbox(geom_sf)$ymax[[1]]
-        ) %>%
-        showGroup("Features")
-
-      rv$userGeometry <- list(source = "sf", geometry = geom_sf)
-      showNotification("KML loaded. Click 'Get Area Distribution'.", type = "message")
-    })
-
     observeEvent(input$getAreaDistribution, {
-      req(rv$userGeometry)
-      geom <- if (!is.null(rv$userGeometry$source) && rv$userGeometry$source == "sf") {
-        rv$userGeometry$geometry
+      req(shared_geometry$userGeometry)
+      geom <- if (!is.null(shared_geometry$userGeometry$source) && shared_geometry$userGeometry$source == "sf") {
+        shared_geometry$userGeometry$geometry
       } else {
-        leaflet_feature_to_mapbiomas_geom(rv$userGeometry)
+        leaflet_feature_to_mapbiomas_geom(shared_geometry$userGeometry)
       }
       if (is.null(geom)) {
         showNotification("Invalid geometry. Draw a polygon on the map.", type = "error")
@@ -516,76 +458,24 @@ mapbiomasAgricultureServer <- function(id, leaflet_map) {
 }
 
 # Server do submodulo MapBiomas - Solos
-mapbiomasSoilServer <- function(id, leaflet_map) {
+mapbiomasSoilServer <- function(id, leaflet_map, shared_geometry) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
     mainInput <- leaflet_map$mapInput
     map <- leaflet_map$proxy
 
     rv_soil <- reactiveValues(
-      userGeometry = NULL,
       profilePlot = NULL,
       texturePlot = NULL
     )
 
-    output$soil_file_ui <- renderUI({
-      fileInput(ns("soilKmlUpload"), "Upload KML or draw on map", accept = ".kml")
-    })
-
-    observeEvent(mainInput$map_draw_new_feature, {
-      rv_soil$userGeometry <- mainInput$map_draw_new_feature
-    })
-
-    observeEvent(mainInput$map_draw_deleted_features, {
-      rv_soil$userGeometry <- NULL
-      map %>% clearShapes()
-      output$soil_file_ui <- renderUI({
-        fileInput(ns("soilKmlUpload"), "Upload KML or draw on map", accept = ".kml")
-      })
-    })
-
-    observeEvent(input$soilKmlUpload, {
-      req(input$soilKmlUpload$datapath)
-      kml_path <- input$soilKmlUpload$datapath
-      geom_sf <- tryCatch({
-        st_read(kml_path) %>% st_zm() %>% st_cast("MULTIPOLYGON")
-      }, error = function(e) {
-        showNotification("Error reading KML file.", type = "error")
-        return(NULL)
-      })
-      if (is.null(geom_sf)) return
-      if (nrow(geom_sf) > 1) {
-        geom_sf <- st_sf(geometry = st_union(geom_sf$geometry))
-      }
-      geom_sf <- st_transform(geom_sf, 4326)
-      map %>%
-        clearShapes() %>%
-        addPolygons(
-          data = geom_sf,
-          group = "Features",
-          fillColor = "green",
-          fillOpacity = 0.2,
-          color = "green",
-          weight = 2
-        ) %>%
-        flyToBounds(
-          lng1 = st_bbox(geom_sf)$xmin[[1]],
-          lat1 = st_bbox(geom_sf)$ymin[[1]],
-          lng2 = st_bbox(geom_sf)$xmax[[1]],
-          lat2 = st_bbox(geom_sf)$ymax[[1]]
-        ) %>%
-        showGroup("Features")
-      rv_soil$userGeometry <- list(source = "sf", geometry = geom_sf)
-      showNotification("KML loaded. Use the buttons to get area metrics.", type = "message")
-    })
-
     # Obter ambas as mtricas (perfis + textura) e exibir donuts lado a lado
     observeEvent(input$getSoilMetrics, {
-      req(rv_soil$userGeometry)
-      geom <- if (!is.null(rv_soil$userGeometry$source) && rv_soil$userGeometry$source == "sf") {
-        rv_soil$userGeometry$geometry
+      req(shared_geometry$userGeometry)
+      geom <- if (!is.null(shared_geometry$userGeometry$source) && shared_geometry$userGeometry$source == "sf") {
+        shared_geometry$userGeometry$geometry
       } else {
-        leaflet_feature_to_mapbiomas_geom(rv_soil$userGeometry)
+        leaflet_feature_to_mapbiomas_geom(shared_geometry$userGeometry)
       }
       if (is.null(geom)) {
         showNotification("Invalid geometry. Draw a polygon on the map.", type = "error")
@@ -697,78 +587,24 @@ mapbiomasSoilServer <- function(id, leaflet_map) {
 }
 
 # Server do submodulo MapBiomas - Environmental Analysis
-mapbiomasEnvAnalysisServer <- function(id, leaflet_map) {
+mapbiomasEnvAnalysisServer <- function(id, leaflet_map, shared_geometry) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
     mainInput <- leaflet_map$mapInput
     map <- leaflet_map$proxy
 
     rv_env <- reactiveValues(
-      userGeometry = NULL,
       hipsometryPlot = NULL,
       slopePlot = NULL,
       aspectPlot = NULL
     )
 
-    output$env_file_ui <- renderUI({
-      fileInput(ns("envKmlUpload"), "Upload KML or draw on map", accept = ".kml")
-    })
-
-    observeEvent(mainInput$map_draw_new_feature, {
-      rv_env$userGeometry <- mainInput$map_draw_new_feature
-    })
-
-    observeEvent(mainInput$map_draw_deleted_features, {
-      rv_env$userGeometry <- NULL
-      map %>% clearShapes()
-      output$env_file_ui <- renderUI({
-        fileInput(ns("envKmlUpload"), "Upload KML or draw on map", accept = ".kml")
-      })
-    })
-
-    observeEvent(input$envKmlUpload, {
-      req(input$envKmlUpload$datapath)
-      kml_path <- input$envKmlUpload$datapath
-      geom_sf <- tryCatch({
-        st_read(kml_path) %>% st_zm() %>% st_cast("MULTIPOLYGON")
-      }, error = function(e) {
-        showNotification("Error reading KML file.", type = "error")
-        return(NULL)
-      })
-      if (is.null(geom_sf)) return
-      if (nrow(geom_sf) > 1) {
-        geom_sf <- st_sf(geometry = st_union(geom_sf$geometry))
-      }
-      geom_sf <- st_transform(geom_sf, 4326)
-
-      map %>%
-        clearShapes() %>%
-        addPolygons(
-          data = geom_sf,
-          group = "Features",
-          fillColor = "green",
-          fillOpacity = 0.2,
-          color = "green",
-          weight = 2
-        ) %>%
-        flyToBounds(
-          lng1 = st_bbox(geom_sf)$xmin[[1]],
-          lat1 = st_bbox(geom_sf)$ymin[[1]],
-          lng2 = st_bbox(geom_sf)$xmax[[1]],
-          lat2 = st_bbox(geom_sf)$ymax[[1]]
-        ) %>%
-        showGroup("Features")
-
-      rv_env$userGeometry <- list(source = "sf", geometry = geom_sf)
-      showNotification("KML loaded. Click 'Get metrics'.", type = "message")
-    })
-
     observeEvent(input$getEnvMetrics, {
-      req(rv_env$userGeometry)
-      geom <- if (!is.null(rv_env$userGeometry$source) && rv_env$userGeometry$source == "sf") {
-        rv_env$userGeometry$geometry
+      req(shared_geometry$userGeometry)
+      geom <- if (!is.null(shared_geometry$userGeometry$source) && shared_geometry$userGeometry$source == "sf") {
+        shared_geometry$userGeometry$geometry
       } else {
-        leaflet_feature_to_mapbiomas_geom(rv_env$userGeometry)
+        leaflet_feature_to_mapbiomas_geom(shared_geometry$userGeometry)
       }
       if (is.null(geom)) {
         showNotification("Invalid geometry. Draw a polygon on the map.", type = "error")
@@ -878,14 +714,13 @@ mapbiomasEnvAnalysisServer <- function(id, leaflet_map) {
 }
 
 # Server do submodulo MapBiomas - Atmosphere (precipitacao)
-mapbiomasAtmosphereServer <- function(id, leaflet_map) {
+mapbiomasAtmosphereServer <- function(id, leaflet_map, shared_geometry) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
     mainInput <- leaflet_map$mapInput
     map <- leaflet_map$proxy
 
     rv_atm <- reactiveValues(
-      userGeometry = NULL,
       precipData = NULL,
       tempData = NULL,
       precipClimatologyPlot = NULL,
@@ -894,63 +729,12 @@ mapbiomasAtmosphereServer <- function(id, leaflet_map) {
       tempAnomalyPlot = NULL
     )
 
-    output$atmosphere_file_ui <- renderUI({
-      fileInput(ns("atmosphereKmlUpload"), "Upload KML or draw on map", accept = ".kml")
-    })
-
-    observeEvent(mainInput$map_draw_new_feature, {
-      rv_atm$userGeometry <- mainInput$map_draw_new_feature
-    })
-
-    observeEvent(mainInput$map_draw_deleted_features, {
-      rv_atm$userGeometry <- NULL
-      map %>% clearShapes()
-      output$atmosphere_file_ui <- renderUI({
-        fileInput(ns("atmosphereKmlUpload"), "Upload KML or draw on map", accept = ".kml")
-      })
-    })
-
-    observeEvent(input$atmosphereKmlUpload, {
-      req(input$atmosphereKmlUpload$datapath)
-      kml_path <- input$atmosphereKmlUpload$datapath
-      geom_sf <- tryCatch({
-        st_read(kml_path) %>% st_zm() %>% st_cast("MULTIPOLYGON")
-      }, error = function(e) {
-        showNotification("Error reading KML file.", type = "error")
-        return(NULL)
-      })
-      if (is.null(geom_sf)) return
-      if (nrow(geom_sf) > 1) {
-        geom_sf <- st_sf(geometry = st_union(geom_sf$geometry))
-      }
-      geom_sf <- st_transform(geom_sf, 4326)
-      map %>%
-        clearShapes() %>%
-        addPolygons(
-          data = geom_sf,
-          group = "Features",
-          fillColor = "green",
-          fillOpacity = 0.2,
-          color = "green",
-          weight = 2
-        ) %>%
-        flyToBounds(
-          lng1 = st_bbox(geom_sf)$xmin[[1]],
-          lat1 = st_bbox(geom_sf)$ymin[[1]],
-          lng2 = st_bbox(geom_sf)$xmax[[1]],
-          lat2 = st_bbox(geom_sf)$ymax[[1]]
-        ) %>%
-        showGroup("Features")
-      rv_atm$userGeometry <- list(source = "sf", geometry = geom_sf)
-      showNotification("KML loaded. Click 'Get Precipitation and Temperature Plots'.", type = "message")
-    })
-
     observeEvent(input$getPrecipitationPlots, {
-      req(rv_atm$userGeometry)
-      geom <- if (!is.null(rv_atm$userGeometry$source) && rv_atm$userGeometry$source == "sf") {
-        rv_atm$userGeometry$geometry
+      req(shared_geometry$userGeometry)
+      geom <- if (!is.null(shared_geometry$userGeometry$source) && shared_geometry$userGeometry$source == "sf") {
+        shared_geometry$userGeometry$geometry
       } else {
-        leaflet_feature_to_mapbiomas_geom(rv_atm$userGeometry)
+        leaflet_feature_to_mapbiomas_geom(shared_geometry$userGeometry)
       }
       if (is.null(geom)) {
         showNotification("Invalid geometry. Draw a polygon on the map.", type = "error")
@@ -1134,11 +918,11 @@ mapbiomasAtmosphereServer <- function(id, leaflet_map) {
 }
 
 # Server do modulo MapBiomas (container)
-mapbiomasServer <- function(id, leaflet_map) {
+mapbiomasServer <- function(id, leaflet_map, shared_geometry) {
   moduleServer(id, function(input, output, session) {
-    mapbiomasAgricultureServer("agriculture", leaflet_map)
-    mapbiomasEnvAnalysisServer("envAnalysis", leaflet_map)
-    mapbiomasSoilServer("soil", leaflet_map)
-    mapbiomasAtmosphereServer("atmosphere", leaflet_map)
+    mapbiomasAgricultureServer("agriculture", leaflet_map, shared_geometry)
+    mapbiomasEnvAnalysisServer("envAnalysis", leaflet_map, shared_geometry)
+    mapbiomasSoilServer("soil", leaflet_map, shared_geometry)
+    mapbiomasAtmosphereServer("atmosphere", leaflet_map, shared_geometry)
   })
 }

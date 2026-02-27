@@ -27,6 +27,7 @@ ShinyAppBBM <- function(ui,
                         grantedUsers = NULL,
                         authEnabled = TRUE,
                         port = 8888,
+                        log_path = NULL,
                         ...) {
   # Versão mockada: ignora autenticação e roda como shinyApp padrão
   options <- list(

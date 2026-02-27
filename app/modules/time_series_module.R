@@ -141,7 +141,6 @@ timeSeriesUI <- function(id) {
   
   div(
     hr(),
-    uiOutput(ns('file1_ui')), ## instead of fileInput('file1', label = NULL)
     selectInput(ns("product"), "Select Satellite Product",
                 choices = available_products,
                 selected = default_product),
@@ -253,8 +252,27 @@ clip_to_unit_range <- function(df, bands, summarised = FALSE) {
   df
 }
 
+# Helper: convert shared geometry (sf or leaflet feature) to format expected by time series
+shared_geom_to_timeseries <- function(geom) {
+  if (is.null(geom)) return(NULL)
+  if (!is.null(geom$source) && geom$source == "sf") {
+    g <- st_geometry(geom$geometry)[[1]]
+    if (inherits(g, "MULTIPOLYGON")) {
+      g <- st_union(st_sf(geometry = st_sfc(g)))
+      g <- g[[1]]
+    }
+    m <- st_coordinates(g)
+    coords <- lapply(seq_len(nrow(m)), function(i) as.numeric(m[i, 1:2]))
+    return(list(
+      properties = list(feature_type = "polygon"),
+      geometry = list(type = "Polygon", coordinates = list(coords))
+    ))
+  }
+  return(geom)
+}
+
 # Time Series Module Server
-timeSeriesServer <- function(id, leaflet_map = leaflet_map) {
+timeSeriesServer <- function(id, leaflet_map = leaflet_map, shared_geometry = NULL) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
 
@@ -264,87 +282,13 @@ timeSeriesServer <- function(id, leaflet_map = leaflet_map) {
     # Reactive values for module state
     rv <- reactiveValues(
       timeSeriesData = NULL,
-      currentPlot = NULL,
-      userGeometry = NULL
+      currentPlot = NULL
     )
     
-    # Handle drawn features
-    observeEvent(mainInput$map_draw_new_feature, {
-      feature_type <- mainInput$map_draw_new_feature$properties$feature_type
-      log_info(sprintf("User drew a new %s on the map", feature_type))
-      rv$userGeometry <- mainInput$map_draw_new_feature
-    })
-    
-    output$file1_ui <- renderUI({
-      fileInput(ns("kmlUpload"), "Upload KML geometry file", accept = ".kml")
-    })
-
-    # Handle deleted features
-    observeEvent(mainInput$map_draw_deleted_features, {
-      log_info("User deleted drawn features from the map")
-      rv$userGeometry <- NULL
-      map %>%
-        clearShapes()
-      output$file1_ui <- renderUI({
-        fileInput(ns("kmlUpload"), "Upload KML geometry file", accept = ".kml")
-      })
-    })
-
-    # Handle deleted features
-    observeEvent(rv$userGeometry, {
-      feature <- rv$userGeometry
-      log_info(sprintf("userGeometry updated: %s",toString(feature)))
-    })
-
-    # KML File Upload: read and add geometry to map
-    observeEvent(input$kmlUpload, {
-      kml_path <- input$kmlUpload$datapath
-      
-      # Read geometry from the KML file using sf with error handling
-      geom_sf <- tryCatch({
-        st_read(kml_path)
-      }, error = function(e) {
-        showNotification("Error reading KML file. Please check the file.", type = "error")
-        NULL
-      })
-      
-      geom_sf <- st_zm(geom_sf)
-
-      geom_sf <- st_cast(geom_sf, "MULTIPOLYGON") %>% st_cast("POLYGON")
-
-
-      geom_sf <- st_transform(geom_sf, crs = 4326)
-
-      # Add or update the KML geometry on the leaflet map:
-      map %>%
-        clearShapes() %>%
-        addPolygons(
-          data = geom_sf,
-          group = "Features",
-          #layerId = "Features",
-          fillColor = "blue",
-          fillOpacity = 0.2,
-          color = "blue",
-          weight = 2
-        ) %>%
-        flyToBounds(
-          lng1 = st_bbox(geom_sf)$xmin[[1]],
-          lat1 = st_bbox(geom_sf)$ymin[[1]],
-          lng2 = st_bbox(geom_sf)$xmax[[1]],
-          lat2 = st_bbox(geom_sf)$ymax[[1]]
-        ) %>%
-        showGroup("Features")
-      
-      showNotification("KML file loaded. You can now edit the geometry on the map.", type = "message")
-
-      # Extract the WKT representation of the geometry
-      wkt <- st_as_text(geom_sf$geometry)
-
-      # Convert the WKT to the desired JSON format
-      json_geometry <- wkt_to_json(wkt)
-
-      rv$userGeometry <- json_geometry
-
+    # Use shared geometry from app.R (KML or drawn on map)
+    userGeometry <- reactive({
+      if (is.null(shared_geometry) || is.null(shared_geometry$userGeometry)) return(NULL)
+      shared_geom_to_timeseries(shared_geometry$userGeometry)
     })
     
     # Observe draw events to update the map
@@ -398,7 +342,7 @@ timeSeriesServer <- function(id, leaflet_map = leaflet_map) {
     
     # Get Time Series Data
     observeEvent(input$getData, {
-      req(rv$userGeometry, input$product, input$bands, input$dateRange)
+      req(userGeometry(), input$product, input$bands, input$dateRange)
       
       # Show modal with loading message
       showModal(modalDialog(
@@ -409,7 +353,7 @@ timeSeriesServer <- function(id, leaflet_map = leaflet_map) {
       ))
       
       tryCatch({
-        feature <- rv$userGeometry
+        feature <- userGeometry()
         feature_type <- feature$properties$feature_type
         coordinates <- feature$geometry$coordinates
         

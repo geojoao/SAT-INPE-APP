@@ -389,7 +389,7 @@ loadRGBComposite <- function(input, asset_urls, asset_date, map_bbox, rv, map, a
   rgb_raster <- c(r, g, b)
   rgb_raster <- brick(rgb_raster)
   
-    # Domínio 0-1 para reflectância já escalada (INPE BDC)
+    # Domnio 0-1 para reflectncia j escalada (INPE BDC)
     map %>%
       addRasterRGB(
         rgb_raster,

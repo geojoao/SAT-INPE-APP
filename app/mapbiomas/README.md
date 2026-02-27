@@ -1,6 +1,6 @@
 # MapBiomas API Client para R
 
-Cliente R para a [API do MapBiomas](https://prd.plataforma.mapbiomas.org/api/docs#/), permitindo extrair estatísticas de área, distribuição de classes de cobertura, transições, histórico de pixels e outras funcionalidades.
+Cliente R para a [API do MapBiomas](https://prd.plataforma.mapbiomas.org/api/docs#/), permitindo extrair estatísticas de área, distribuião de classes de cobertura, transições, histórico de pixels e outras funcionalidades.
 
 ## Instalação das dependências
 

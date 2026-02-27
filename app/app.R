@@ -156,6 +156,7 @@ ShinyAppBBM(
   app_secret = "#{app_secret}#",
   resource = c("openid"),
   redirect = "https://rstudio.bocombbm.com.br/app/App_sat",
+  log_path = "/tmp/App_sat_logged_users.csv",
   grantedUsers = c(
     "gabrielvasconcelos@bocombbm.com.br",
     "danielreis@bocombbm.com.br",

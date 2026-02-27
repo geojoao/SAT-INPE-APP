@@ -232,7 +232,7 @@ leafletMapServer <- function(id) {
     layers_df <- get_geoserver_layers(ignore_workspaces = ignoredWorkspaces)
     imageLayers <- reactiveVal(list())
 
-    # Constrói a árvore de overlays completa (GeoServer + Features + Image Viewer)
+    # Constri a rvore de overlays completa (GeoServer + Features + Image Viewer)
     build_full_overlay_tree <- function(img_layers = list()) {
       children <- list()
       if (!is.null(layers_df)) {
@@ -315,7 +315,7 @@ leafletMapServer <- function(id) {
     })
     mapProxy <- leafletProxy(ns("map"))
 
-    # Adiciona camada do Image Viewer à árvore de controle (em vez de addLayersControl)
+    # Adiciona camada do Image Viewer  rvore de controle (em vez de addLayersControl)
     addImageLayer <- function(layerId, label) {
       current <- imageLayers()
       new_layers <- c(current, list(list(layerId = layerId, label = label)))

@@ -55,7 +55,7 @@ mapbiomasAgricultureUI <- function(id) {
   )
 }
 
-# Constantes para submódulo Solos (MapBiomas API)
+# Constantes para submdulo Solos (MapBiomas API)
 SOIL_FRACTION_OPTS <- list(
   Sand = list(subtheme = "soil_sand_fraction", legend = "soil_sand_fraction_mapbiomas_sand"),
   Silt = list(subtheme = "soil_silt_fraction", legend = "soil_silt_fraction_mapbiomas_silt"),
@@ -579,7 +579,7 @@ mapbiomasSoilServer <- function(id, leaflet_map) {
       showNotification("KML loaded. Use the buttons to get area metrics.", type = "message")
     })
 
-    # Obter ambas as métricas (perfis + textura) e exibir donuts lado a lado
+    # Obter ambas as mtricas (perfis + textura) e exibir donuts lado a lado
     observeEvent(input$getSoilMetrics, {
       req(rv_soil$userGeometry)
       geom <- if (!is.null(rv_soil$userGeometry$source) && rv_soil$userGeometry$source == "sf") {
@@ -593,7 +593,7 @@ mapbiomasSoilServer <- function(id, leaflet_map) {
       }
       showModal(modalDialog("Loading soil metrics...", footer = NULL, size = "s"))
       tryCatch({
-        # 1) Perfis (fração)
+        # 1) Perfis (frao)
         frac_opt <- SOIL_FRACTION_OPTS[[input$soilFraction]]
         depth_profile <- input$soilProfileDepth
         legend_frac <- mapbiomas_client$get_legend_leaf_items("brazil", frac_opt$legend)

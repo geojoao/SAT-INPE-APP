@@ -107,7 +107,11 @@ mapbiomasEnvAnalysisUI <- function(id) {
 # UI do submodulo MapBiomas - Atmosphere (precipitacao)
 mapbiomasAtmosphereUI <- function(id) {
   ns <- NS(id)
+  current_year <- as.integer(format(Sys.Date(), "%Y"))
   div(
+    sliderInput(ns("yearRange"), "Period (years)",
+                min = 2000, max = current_year, value = c(2000, current_year),
+                step = 1, sep = ""),
     actionButton(ns("getPrecipitationPlots"), "Get Precipitation and Temperature Plots",
                  class = "btn-primary btn-block",
                  style = "margin-top: 20px;")
@@ -749,11 +753,12 @@ mapbiomasAtmosphereServer <- function(id, leaflet_map, shared_geometry) {
       ))
 
       tryCatch({
+        years_atm <- seq(input$yearRange[1], input$yearRange[2])
         result_precip <- mapbiomas_client$get_precipitation_statistics(
-          region = "brazil", geometry = geom, years = 1985:2024
+          region = "brazil", geometry = geom, years = years_atm
         )
         result_temp <- mapbiomas_client$get_temperature_statistics(
-          region = "brazil", geometry = geom, years = 1985:2024
+          region = "brazil", geometry = geom, years = years_atm
         )
         df_precip <- parse_precipitation_statistics_to_df(result_precip)
         df_temp <- parse_precipitation_statistics_to_df(result_temp)

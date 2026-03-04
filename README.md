@@ -22,7 +22,59 @@ Este projeto é uma aplicação Shiny que permite a visualização e análise de
 Para instalar as dependências do projeto, execute o seguinte comando no R:
 
 ```r
-install.packages(c("shiny", "plotly", "leaflet", "sf", "httr", "jsonlite", "logger", "R6"))
+# 1) Forçar uso do curl externo com ignorar SSL
+options(
+  download.file.method = "curl",
+  download.file.extra  = "-k"
+)
+
+# 2) Definir o repositório
+options(repos = c(CRAN = "https://cloud.r-project.org"))
+
+# packages <- c(
+#   "shiny", "shinydashboard", "shinyjs",
+#   "plotly", "leaflet", "leaflet.extras", "leaflet.extras2", "leafem",
+#   "sf", "terra", "raster", "geojsonsf",
+#   "httr", "httr2",
+#   "R6", "jsonlite", "purrr", "dplyr", "base64enc",
+#   "rstac", "BBMQuant", "signal",
+#   "logger", "xml2", "htmltools", "htmlwidgets"
+# )
+
+packages <- c(
+  "leaflet", "leaflet.extras", "leaflet.extras2"
+)
+
+install.packages(packages, dependencies = TRUE)
+
+options(
+  download.file.method = "curl",
+  download.file.extra  = "-k"
+)
+
+install.packages(
+  "https://cran.r-project.org/src/contrib/Archive/leaflet.extras/leaflet.extras_2.0.1.tar.gz",
+  repos = NULL,
+  type  = "source"
+)
+
+install.packages(
+  "C:/Users/joaoluizneto.RAIZ/Documents/SAT-INPE-APP/BBMQuant",
+  repos = NULL,
+  type  = "source"
+)
+
+libs <- c(
+  "shiny", "shinydashboard", "shinyjs",
+  "plotly", "leaflet", "leaflet.extras", "leaflet.extras2",
+  "sf", "terra", "raster", "geojsonsf",
+  "httr", "httr2",
+  "R6", "jsonlite", "purrr", "dplyr", "base64enc",
+  "rstac", "BBMQuant", "signal",
+  "logger", "xml2", "htmltools", "htmlwidgets", "BBMQuant"
+)
+
+invisible(lapply(libs, library, character.only = TRUE))
 ```
 
 ## Uso

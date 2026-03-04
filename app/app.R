@@ -33,6 +33,7 @@ source("modules/time_series_module.R")
 source("modules/image_viewer_module.R")
 source("modules/mapbiomas_module.R")
 source("modules/leaflet_map_module.R")
+source("modules/cluster_module.R")
 
 log_threshold(TRACE)
 log_appender(appender_file(stderr()))
@@ -108,7 +109,9 @@ ui <- fluidPage(
                   tabPanel("Image Viewer", 
                            imageViewerUI("imageViewer")),
                   tabPanel("MapBiomas", 
-                           mapbiomasUI("mapbiomas"))
+                           mapbiomasUI("mapbiomas")),
+                  tabPanel("Clusterization",
+                           clusterUI("cluster"))
       ),
       tags$a(href = "https://rstudio.bocombbm.com.br/app/quant_agro_doc/apps/sat.html", 
              h4("Help (?)"), target = "_blank")
@@ -204,6 +207,11 @@ server <- function(input, output, session) {
   mapbiomasServer("mapbiomas",
                   leaflet_map = leaflet_map,
                   shared_geometry = sharedGeometry
+  )
+  
+  clusterServer("cluster",
+                leaflet_map = leaflet_map,
+                shared_geometry = sharedGeometry
   )
   
   # Log when session ends

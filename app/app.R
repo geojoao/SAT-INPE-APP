@@ -100,7 +100,7 @@ ui <- fluidPage(
   div(class = "sidebar",
       tags$img(src = "logo_h.png", width = "100%"),
       h2(class = "center-heading", "S.A.T."),
-      tags$p("Import KML or draw on the map. The geometry will be used by all modules below.", style = "font-size: 12px; color: #666; margin-bottom: 8px;"),
+      tags$p("Import KML or draw on the map.", style = "font-size: 12px; color: #666; margin-bottom: 8px;"),
       uiOutput("kmlUpload_ui"),
       hr(),
       tabsetPanel(id = "mainTabs",

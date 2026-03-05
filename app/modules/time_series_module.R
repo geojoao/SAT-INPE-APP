@@ -12,15 +12,19 @@ available_products <- sapply(capabilities$available_collections, function(x) x$n
 # Default product: MOIDS (mod13q1-6.1 - MODIS Terra Vegetation Indices)
 default_product <- if ("mod13q1-6.1" %in% available_products) "mod13q1-6.1" else available_products[1]
 
-# Summary stats: prefer p25/p75 (quantis), fallback to min/max
+# Summary stats: prefer q1/q3 or p25/p75 (quantis), fallback to min/max
 get_summary_stat_cols <- function(data, band_name) {
   mean_col <- paste0(band_name, "_mean")
+  q1_col <- paste0(band_name, "_q1")
+  q3_col <- paste0(band_name, "_q3")
   p25_col <- paste0(band_name, "_p25")
   p75_col <- paste0(band_name, "_p75")
   min_col <- paste0(band_name, "_min")
   max_col <- paste0(band_name, "_max")
   
-  if (mean_col %in% names(data) && p25_col %in% names(data) && p75_col %in% names(data)) {
+  if (mean_col %in% names(data) && q1_col %in% names(data) && q3_col %in% names(data)) {
+    list(mean = mean_col, lower = q1_col, upper = q3_col, lower_label = "Q1", upper_label = "Q3")
+  } else if (mean_col %in% names(data) && p25_col %in% names(data) && p75_col %in% names(data)) {
     list(mean = mean_col, lower = p25_col, upper = p75_col, lower_label = "P25", upper_label = "P75")
   } else if (mean_col %in% names(data) && min_col %in% names(data) && max_col %in% names(data)) {
     list(mean = mean_col, lower = min_col, upper = max_col, lower_label = "Min", upper_label = "Max")
@@ -35,7 +39,7 @@ createSummaryPlot <- function(data, band_name) {
   
   cols <- get_summary_stat_cols(data, band_name)
   if (is.null(cols)) {
-    err_msg <- sprintf("Missing required columns (mean + p25/p75 or min/max). Available: %s",
+    err_msg <- sprintf("Missing required columns (mean + q1/q3, p25/p75 or min/max). Available: %s",
                       paste(names(data), collapse=", "))
     log_error(err_msg)
     stop(err_msg)
@@ -209,7 +213,7 @@ apply_quality_filter <- function(df, bands, collection_info, summarised = FALSE)
       df[[band]] <- col_vals
     } else {
       # Summarised geometry: multiple stats per band (mean, min, max, p25, p75, etc.)
-      stat_suffixes <- c("_mean", "_min", "_max", "_p25", "_p75")
+      stat_suffixes <- c("_mean", "_min", "_max", "_p25", "_p75", "_q1", "_q3")
       for (suf in stat_suffixes) {
         col_name <- paste0(band, suf)
         if (!col_name %in% names(df)) next
@@ -238,7 +242,7 @@ clip_to_unit_range <- function(df, bands, summarised = FALSE) {
       df[[band]] <- vals
     }
   } else {
-    stat_suffixes <- c("_mean", "_min", "_max", "_p25", "_p75")
+    stat_suffixes <- c("_mean", "_min", "_max", "_p25", "_p75", "_q1", "_q3")
     for (band in bands) {
       for (suf in stat_suffixes) {
         col_name <- paste0(band, suf)
@@ -488,7 +492,7 @@ timeSeriesServer <- function(id, leaflet_map = leaflet_map, shared_geometry = NU
           
           if (input$summariseGeometry) {
             # Smooth summary statistics (mean, min, max, p25, p75) for each band
-            stat_suffixes <- c("_mean", "_min", "_max", "_p25", "_p75")
+            stat_suffixes <- c("_mean", "_min", "_max", "_p25", "_p75", "_q1", "_q3")
             for (band in input$bands) {
               for (suf in stat_suffixes) {
                 col_name <- paste0(band, suf)

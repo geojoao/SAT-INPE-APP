@@ -296,7 +296,11 @@ clusterServer <- function(id, leaflet_map, shared_geometry = NULL) {
       
       feats_sel <- feats[sel_idx]
       # Ordena por data para garantir série temporal correta
-      dates_sel <- sapply(feats_sel, function(x) as.POSIXct(x$properties$datetime))
+      # Parsing explícito com UTC para evitar problemas de timezone
+      dates_sel <- sapply(feats_sel, function(x) {
+        dt <- x$properties$datetime
+        as.POSIXct(dt, tz = "UTC")
+      })
       ord <- order(dates_sel)
       feats_sel <- feats_sel[ord]
       dates_sel <- dates_sel[ord]
@@ -421,7 +425,8 @@ clusterServer <- function(id, leaflet_map, shared_geometry = NULL) {
           }
         }
         
-        dates_vec <- as.Date(dates_sel)
+        # Mesma estratégia dos labels dos assets: extrair datas diretamente de properties$datetime
+        dates_vec <- sapply(feats_sel, function(x) format(as.POSIXct(x$properties$datetime), "%Y-%m-%d"))
         cluster_labels <- if (all(is.na(cluster_areas_ha))) {
           paste0("Cluster ", seq_len(k))
         } else {
@@ -496,19 +501,34 @@ clusterServer <- function(id, leaflet_map, shared_geometry = NULL) {
     })
     
     # Plot série temporal média por cluster
+    # Usar add_trace em loop evita que o factor cluster corrompa o eixo x de datas
     output$clusterTsPlot <- renderPlotly({
       req(rv$clusterTsData, rv$clusterPalette)
       df <- rv$clusterTsData
       cols <- rv$clusterPalette$colors
+      n_clusters <- length(levels(df$cluster))
       
-      p <- plotly::plot_ly(df, x = ~date, y = ~mean_value,
-                           color = ~cluster,
-                           colors = cols,
-                           type = "scatter",
-                           mode = "lines") %>%
+      p <- plot_ly()
+      for (i in seq_len(n_clusters)) {
+        idx <- df$cluster == levels(df$cluster)[i]
+        p <- add_trace(
+          p,
+          x = df$date[idx],
+          y = df$mean_value[idx],
+          name = levels(df$cluster)[i],
+          type = "scatter",
+          mode = "lines",
+          line = list(color = cols[i])
+        )
+      }
+      p %>%
         layout(
           title = "Mean time series per cluster",
-          xaxis = list(title = "Date"),
+          xaxis = list(
+            title = "Date",
+            type = "date",
+            tickformat = "%Y-%m-%d"
+          ),
           yaxis = list(title = "Value"),
           legend = list(
             orientation = "v",
@@ -518,7 +538,6 @@ clusterServer <- function(id, leaflet_map, shared_geometry = NULL) {
             yanchor = "middle"
           )
         )
-      p
     })
     
     # Mapa de clusters (renderizado em modal)

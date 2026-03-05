@@ -527,7 +527,8 @@ clusterServer <- function(id, leaflet_map, shared_geometry = NULL) {
           xaxis = list(
             title = "Date",
             type = "date",
-            tickformat = "%Y-%m-%d"
+            tickformat = "%Y-%m-%d",
+            tickangle = -45
           ),
           yaxis = list(title = "Value"),
           legend = list(

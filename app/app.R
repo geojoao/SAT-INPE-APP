@@ -171,6 +171,8 @@ server <- function(input, output, session) {
       geom_sf <- st_sf(geometry = st_union(geom_sf$geometry))
     }
     geom_sf <- st_transform(geom_sf, 4326)
+    # Simplify geometry to avoid module failures with very complex KML (e.g. too many vertices)
+    geom_sf <- st_simplify(geom_sf, dTolerance = 0.0001, preserveTopology = TRUE)
     
     map %>%
       clearShapes() %>%

@@ -273,7 +273,7 @@ clusterServer <- function(id, leaflet_map, shared_geometry = NULL) {
           "Select Assets (dates) for clustering",
           choices = choices,
           multiple = TRUE,
-          selected = NULL
+          selected = ids
         )
       )
     })

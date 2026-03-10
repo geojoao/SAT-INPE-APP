@@ -168,7 +168,7 @@ timeSeriesUI <- function(id) {
         "Savitzky-Golay - medium" = "sg_medium",
         "Savitzky-Golay - strong" = "sg_strong"
       ),
-      selected = "none"
+      selected = "sg_light"
     ),
     actionButton(ns("getData"), "Get Time Series",
                  class = "btn-primary btn-block",

@@ -134,40 +134,28 @@ WTSSClient <- R6::R6Class(
       }
     },
 
-    # Summarize using GET: GET /{collectionId}/summarize
+    # Summarize: POST /{collectionId}/summarize (always POST to avoid URL length limit)
     summarize_get = function(collectionId, geom, attributes, start_datetime = NULL,
                              end_datetime = NULL, aggregations = NULL, applyAttributeScale = TRUE,
                              pixelCollisionType = "center", qa = NULL, masked = NULL) {
-      url <- paste0(self$base_url, "/", collectionId, "/summarize")
-      
-      query_params <- list(
-        geom = jsonlite::toJSON(geom, auto_unbox = TRUE),
-        attributes = paste(attributes, collapse = ","),
+      # API expects attributes as array, not comma-separated string
+      attrs <- if (is.character(attributes) && length(attributes) == 1) list(attributes) else as.list(attributes)
+      payload <- list(
+        geom = geom,
+        attributes = attrs,
         start_datetime = start_datetime,
         end_datetime = end_datetime,
         applyAttributeScale = applyAttributeScale,
         pixelCollisionType = pixelCollisionType
       )
-      
-      if (!is.null(aggregations)) {
-        query_params$aggregations <- paste(aggregations, collapse = ",")
-      }
-      
-      log_request_details("GET", url, query_params)
-      
-      response <- GET(url, query = query_params)
-      if (response$status_code == 200) {
-        log_info("Successfully retrieved summary for collection: {collectionId}")
-        return(content(response, as = "parsed"))
-      } else {
-        log_error("Failed to get summary - Status: {response$status_code}")
-        stop("Error: ", response$status_code)
-      }
+      if (!is.null(aggregations)) payload$aggregations <- paste(aggregations, collapse = ",")
+      return(self$summarize_post(collectionId, payload))
     },
 
     # Summarize using POST: POST /{collectionId}/summarize
     summarize_post = function(collectionId, payload) {
       url <- paste0(self$base_url, "/", collectionId, "/summarize")
+      log_info("Summarize POST - collection: {collectionId}")
       log_request_details("POST", url, payload = payload)
       
       response <- POST(url,
@@ -178,46 +166,35 @@ WTSSClient <- R6::R6Class(
         log_info("Successfully posted summary for collection: {collectionId}")
         return(content(response, as = "parsed"))
       } else {
+        resp_body <- content(response, as = "text", encoding = "UTF-8")
         log_error("Failed to post summary - Status: {response$status_code}")
-        stop("Error: ", response$status_code)
+        log_error("API response body: {resp_body}")
+        stop("WTSS summarize POST error (", response$status_code, "): ", resp_body)
       }
     },
 
-    # Time Series using GET: GET /{collectionId}/timeseries
+    # Time Series: POST /{collectionId}/timeseries (always POST to avoid URL length limit)
     timeseries_get = function(collectionId, geom, attributes, start_datetime = NULL,
                               end_datetime = NULL, applyAttributeScale = TRUE,
                               pixelCollisionType = "center", pagination = NULL) {
-      url <- paste0(self$base_url, "/", collectionId, "/timeseries")
-      
-      query_params <- list(
-        geom = jsonlite::toJSON(geom, auto_unbox = TRUE),
-        attributes = paste(attributes, collapse = ","),
+      # API expects attributes as array, not comma-separated string
+      attrs <- if (is.character(attributes) && length(attributes) == 1) list(attributes) else as.list(attributes)
+      payload <- list(
+        geom = geom,
+        attributes = attrs,
         start_datetime = start_datetime,
         end_datetime = end_datetime,
         applyAttributeScale = applyAttributeScale,
         pixelCollisionType = pixelCollisionType
       )
-      
-      if (!is.null(pagination)) {
-        query_params$pagination <- pagination
-      }
-      
-      log_request_details("GET", url, query_params)
-      
-      response <- GET(url, query = query_params)
-      
-      if (response$status_code == 200) {
-        log_info("Successfully retrieved time series for collection: {collectionId}")
-        return(content(response, as = "parsed"))
-      } else {
-        log_error("Failed to get time series - Status: {response$status_code}")
-        stop("Error: ", response$status_code)
-      }
+      if (!is.null(pagination)) payload$pagination <- pagination
+      return(self$timeseries_post(collectionId, payload))
     },
 
     # Time Series using POST: POST /{collectionId}/timeseries
     timeseries_post = function(collectionId, payload) {
       url <- paste0(self$base_url, "/", collectionId, "/timeseries")
+      log_info("Timeseries POST - collection: {collectionId}")
       log_request_details("POST", url, payload = payload)
       
       response <- POST(url,
@@ -228,8 +205,10 @@ WTSSClient <- R6::R6Class(
         log_info("Successfully posted time series for collection: {collectionId}")
         return(content(response, as = "parsed"))
       } else {
+        resp_body <- content(response, as = "text", encoding = "UTF-8")
         log_error("Failed to post time series - Status: {response$status_code}")
-        stop("Error: ", response$status_code)
+        log_error("API response body: {resp_body}")
+        stop("WTSS timeseries POST error (", response$status_code, "): ", resp_body)
       }
     }
   )

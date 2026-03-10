@@ -257,20 +257,51 @@ clip_to_unit_range <- function(df, bands, summarised = FALSE) {
 }
 
 # Helper: convert shared geometry (sf or leaflet feature) to format expected by time series
+# WTSS API expects a single valid GeoJSON Polygon (not MultiPolygon). For MULTIPOLYGON
+# from KML we extract the first polygon's exterior ring to avoid invalid geometry.
 shared_geom_to_timeseries <- function(geom) {
   if (is.null(geom)) return(NULL)
   if (!is.null(geom$source) && geom$source == "sf") {
     g <- st_geometry(geom$geometry)[[1]]
+    # Ensure we have a single POLYGON. MULTIPOLYGON with st_union may still return MULTIPOLYGON
+    # when polygons don't touch - concatenating all coords would create invalid geometry.
     if (inherits(g, "MULTIPOLYGON")) {
-      g <- st_union(st_sf(geometry = st_sfc(g)))
-      g <- g[[1]]
+      polys <- st_cast(g, "POLYGON")
+      if (length(polys) > 1) {
+        # Take the largest polygon by area (most representative)
+        areas <- st_area(polys)
+        g <- polys[[which.max(areas)]]
+        log_info(sprintf("MULTIPOLYGON: using largest polygon (index %d of %d)", which.max(areas), length(polys)))
+      } else {
+        g <- polys[[1]]
+      }
+    }
+    if (inherits(g, "MULTIPOLYGON")) {
+      g <- st_cast(g, "POLYGON")[[1]]
     }
     m <- st_coordinates(g)
-    coords <- lapply(seq_len(nrow(m)), function(i) as.numeric(m[i, 1:2]))
-    return(list(
+    # Use only exterior ring (L1=1). Holes would create invalid GeoJSON when concatenated.
+    if ("L1" %in% colnames(m)) {
+      m <- m[m[, "L1"] == 1, , drop = FALSE]
+    }
+    # Use X,Y columns (st_coordinates returns X,Y for 2D)
+    xy_cols <- intersect(c("X", "Y"), colnames(m))
+    if (length(xy_cols) == 2) {
+      coords <- lapply(seq_len(nrow(m)), function(i) as.numeric(m[i, xy_cols]))
+    } else {
+      coords <- lapply(seq_len(nrow(m)), function(i) as.numeric(m[i, 1:2]))
+    }
+    # Ensure polygon ring is closed (first point == last point)
+    if (length(coords) > 1 && !identical(coords[[1]], coords[[length(coords)]])) {
+      coords <- c(coords, list(coords[[1]]))
+      log_info("Closed polygon ring (added first point at end)")
+    }
+    result <- list(
       properties = list(feature_type = "polygon"),
       geometry = list(type = "Polygon", coordinates = list(coords))
-    ))
+    )
+    log_info(sprintf("Converted sf to timeseries geom - type: Polygon, coords: %d", length(coords)))
+    return(result)
   }
   return(geom)
 }
@@ -361,6 +392,8 @@ timeSeriesServer <- function(id, leaflet_map = leaflet_map, shared_geometry = NU
         feature_type <- feature$properties$feature_type
         coordinates <- feature$geometry$coordinates
         
+        log_info(sprintf("Time series: feature_type=%s, geom_type=%s", feature_type, feature$geometry$type))
+        
         # Prepare geometry based on feature type
         if (feature_type == "polygon") {
           geom <- list(
@@ -428,6 +461,13 @@ timeSeriesServer <- function(id, leaflet_map = leaflet_map, shared_geometry = NU
           
         } else {
           # Use regular time series get
+          if (geom$type == "Polygon" && !is.null(geom$coordinates[[1]])) {
+            ring <- geom$coordinates[[1]]
+            log_info(sprintf("Polygon bounds: first=[%.4f,%.4f] last=[%.4f,%.4f] n=%d",
+              ring[[1]][[1]], ring[[1]][[2]],
+              ring[[length(ring)]][[1]], ring[[length(ring)]][[2]],
+              length(ring)))
+          }
           response <- client$timeseries_get(
             collectionId = input$product,
             geom = geom,
@@ -586,9 +626,12 @@ timeSeriesServer <- function(id, leaflet_map = leaflet_map, shared_geometry = NU
         
       }, error = function(e) {
         removeModal()
+        err_msg <- conditionMessage(e)
+        log_error(skip_formatter(paste0("Time series error: ", err_msg)))
         showNotification(
-          paste("Error getting time series data:", e$message),
-          type = "error"
+          paste("Error getting time series data:", err_msg),
+          type = "error",
+          duration = 10
         )
       })
     })
